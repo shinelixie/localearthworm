@@ -1,7 +1,8 @@
 name: GitHub Pages（纯前端版）
 
 # 构建并部署「纯前端版」到 GitHub Pages：
-#   https://shinelixie.github.io/localearthworm/
+#   https://<user>.github.io/<repo>/（base 路径从 git remote 自动推导）
+# 注意：GitHub 不允许在 fork 仓库上启用 Pages，本 workflow 必须在非 fork 仓库使用
 #
 # 课程内容随仓库发布（apps/client/public/data/courses.json，由
 # `pnpm web-data` 从本机库导出后提交），所以构建不需要数据库；
@@ -24,6 +25,9 @@ concurrency:
 
 jobs:
   build:
+    # 只有站点仓库 shinelixie/localearthworm-web 真正部署；
+    # 开发主仓库（fork，Pages 不可用）上整个 workflow 直接跳过，不产生红叉
+    if: github.repository == 'shinelixie/localearthworm-web'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

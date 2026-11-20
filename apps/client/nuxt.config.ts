@@ -21,7 +21,9 @@ function addClarity() {
 // 内容读 public/data/courses.json，学习数据写 IndexedDB，发音走有道 + 浏览器兜底。
 const isWeb = process.env.NUXT_PUBLIC_WEB === "true" || !process.env.API_BASE;
 // GitHub Pages 子路径：https://<user>.github.io/<repo>/
-const webBase = process.env.NUXT_PUBLIC_BASE_URL || "/localearthworm/";
+// 纯前端版发布在非 fork 的独立仓库 shinelixie/localearthworm-web，
+// 所以 base 固定为 /localearthworm-web/；换仓库时用 NUXT_PUBLIC_BASE_URL 覆盖
+const webBase = process.env.NUXT_PUBLIC_BASE_URL || "/localearthworm-web/";
 
 export default defineNuxtConfig({
   ssr: false,

@@ -113,7 +113,10 @@ curl -X POST http://localhost:3101/tts/cache/purge      # 清缓存
 ## 纯前端版（GitHub Pages）
 
 不需要服务器和数据库，浏览器里直接用：
-[https://shinelixie.github.io/localearthworm/](https://shinelixie.github.io/localearthworm/)
+[https://shinelixie.github.io/localearthworm-web/](https://shinelixie.github.io/localearthworm-web/)
+
+站点发布在独立仓库 [`shinelixie/localearthworm-web`](https://github.com/shinelixie/localearthworm-web)
+（GitHub 不支持在 fork 仓库上启用 Pages，所以单独建了个非 fork 仓库，内容和本仓库相同）。
 
 - **课程内容**随站点发布（`apps/client/public/data/courses.json`，由 `pnpm web-data`
   从本机库导出并提交进仓库）
