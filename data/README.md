@@ -32,3 +32,14 @@ gzip -dc data/earthworm-content.sql.gz | psql "postgres://postgres@127.0.0.1:543
 Windows 便携版同理，把 `psql` 换成 `tools\pgsql\bin\psql.exe` 即可。
 
 恢复后如需要语音，调用 `POST /tts/prewarm` 重新合成（会写入 `tts_audio` 和 `storage/tts`），已缓存的会跳过。
+
+## 重新导出
+
+课程内容有改动后，重新生成这份快照：
+
+```bash
+docker exec localearthworm-db-1 pg_dump -U postgres -d earthworm \
+  --data-only --no-owner --no-privileges \
+  -t public.course_packs -t public.courses -t public.statements -t public.fragment_translation \
+  | gzip -9 > data/earthworm-content.sql.gz
+```
