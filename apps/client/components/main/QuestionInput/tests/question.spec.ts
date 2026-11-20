@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { getWordWidth } from "../questionInputHelper";
+import { getWordWidth, useQuestionInput } from "../questionInputHelper";
 
 describe("getWordWidth", () => {
   it("should return the correct width for a single letter", () => {
@@ -21,6 +21,33 @@ describe("getWordWidth", () => {
   it("should handle non-letter characters", () => {
     expect(getWordWidth("123")).toBe(4); // 1 (width of each character) * 3 + 1 (padding)
     expect(getWordWidth("!@#")).toBe(4); // 1 (width of each character) * 3 + 1 (padding)
+  });
+
+  it("tracks the input cursor for the visible caret", () => {
+    const {
+      inputEl,
+      cursorPosition,
+      setInputCursorPosition,
+      getInputCursorPosition,
+      syncCursorPosition,
+    } = useQuestionInput();
+
+    const fakeInput = {
+      selectionStart: 0,
+      setSelectionRange(position: number) {
+        this.selectionStart = position;
+      },
+    };
+    inputEl.value = fakeInput as any;
+
+    setInputCursorPosition(5);
+    expect(fakeInput.selectionStart).toBe(5);
+    expect(cursorPosition.value).toBe(5);
+    expect(getInputCursorPosition()).toBe(5);
+
+    fakeInput.selectionStart = 2;
+    expect(syncCursorPosition()).toBe(2);
+    expect(cursorPosition.value).toBe(2);
   });
 
   it("should return the correct width for a long string with various characters", () => {

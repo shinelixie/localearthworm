@@ -73,7 +73,7 @@ await send("Emulation.setDeviceMetricsOverride", {
   mobile: false,
 });
 
-const url = `http://localhost:3000/game/${packId}/${courseId}`;
+const url = `http://localhost:3100/game/${packId}/${courseId}`;
 await send("Page.navigate", { url });
 await sleep(2500);
 

@@ -7,6 +7,7 @@
       <NuxtLink
         class="clickable-item flex items-center justify-center"
         :href="`/course-pack/${courseStore.currentCourse?.coursePackId}`"
+        @click="handleBackToCourseList"
       >
         <UTooltip text="课程列表">
           <IconsExpand class="h-7 w-7" />
@@ -25,6 +26,33 @@
 
     <!-- 右侧 -->
     <div class="flex items-center gap-4">
+      <div @click="toggleGrammarAnalysis">
+        <UTooltip :text="isGrammarVisible ? '隐藏语法分析' : '显示语法分析'">
+          <UIcon
+            name="i-ph-tree-structure"
+            :class="['clickable-item h-6 w-6', { 'text-fuchsia-500': isGrammarVisible }]"
+          />
+        </UTooltip>
+      </div>
+
+      <div @click="volumeModal?.open()">
+        <UTooltip :text="`音量 ${volume}%`">
+          <UIcon
+            :name="volumeIcon"
+            class="clickable-item h-6 w-6"
+          />
+        </UTooltip>
+      </div>
+
+      <div @click="backgroundTintModal?.open()">
+        <UTooltip text="背景色调">
+          <UIcon
+            name="i-ph-palette"
+            class="clickable-item h-6 w-6"
+          />
+        </UTooltip>
+      </div>
+
       <div
         @click="openGameSettingModal"
         v-if="isDictationMode()"
@@ -71,6 +99,8 @@
     </div>
 
     <MainCourseContents v-model:isOpen="isOpenCourseContents"></MainCourseContents>
+    <MainBackgroundTintModal ref="backgroundTintModal" />
+    <MainVolumeModal ref="volumeModal" />
   </div>
 
   <CommonProgressBar
@@ -88,18 +118,26 @@ import Dialog from "~/components/common/Dialog.vue";
 import { useQuestionInput } from "~/components/main/QuestionInput/questionInputHelper";
 import { courseTimer } from "~/composables/courses/courseTimer";
 import { useGameMode } from "~/composables/main/game";
+import { useGrammarAnalysis } from "~/composables/main/grammarAnalysis";
 import { clearQuestionInput } from "~/composables/main/question";
+import { splitSession } from "~/composables/main/splitSession";
 import { useCourseContents } from "~/composables/main/useCourseContents";
 import { useGamePause } from "~/composables/main/useGamePause";
 import { useGameSetting } from "~/composables/main/useGameSetting";
 import { useRanking } from "~/composables/rank/rankingList";
 import { useGamePlayMode } from "~/composables/user/gamePlayMode";
 import { parseShortcut, useShortcutKeyMode } from "~/composables/user/shortcutKey";
+import { useVolume } from "~/composables/user/volume";
 import { isAuthenticated } from "~/services/auth";
 import { useCourseStore } from "~/store/course";
+import { flushProgress } from "~/store/statement";
 
 const { shortcutKeys } = useShortcutKeyMode();
 const { isDictationMode } = useGamePlayMode();
+const { isVisible: isGrammarVisible, toggle: toggleGrammarAnalysis } = useGrammarAnalysis();
+const { volume, icon: volumeIcon } = useVolume();
+const backgroundTintModal = ref();
+const volumeModal = ref();
 const rankingStore = useRanking();
 const courseStore = useCourseStore();
 const { focusInput } = useQuestionInput();
@@ -127,6 +165,14 @@ const currentPercentage = computed(() => {
 });
 
 const isOpenCourseContents = ref(false);
+
+// 离开页面前把当前题目下标立刻写回，避免要等 5 秒防抖
+// （拆分练习没有服务端进度，不能写）
+function handleBackToCourseList() {
+  if (!splitSession.value.enabled) {
+    flushProgress();
+  }
+}
 
 function useDoAgain() {
   const { showQuestion } = useGameMode();

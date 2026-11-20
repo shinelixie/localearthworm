@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Post, UseGuards } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Param, Patch, Post, UseGuards } from "@nestjs/common";
 
 import { AuthGuard, UncheckAuth } from "../guards/auth.guard";
 import { User, UserEntity } from "../user/user.decorators";
@@ -89,6 +89,37 @@ export class CoursePackController {
     @Param("courseId") courseId: string,
   ) {
     return this.coursePackService.completeCourse(user.userId, coursePackId, courseId);
+  }
+
+  /** 课程管理：修改课程包名称/简介 */
+  @UseGuards(AuthGuard)
+  @Patch(":coursePackId")
+  updateCoursePack(
+    @Param("coursePackId") coursePackId: string,
+    @Body() body: { title?: string; description?: string },
+  ) {
+    return this.coursePackService.updateCoursePack(coursePackId, body ?? {});
+  }
+
+  /** 课程管理：修改课程名称/简介 */
+  @UseGuards(AuthGuard)
+  @Patch(":coursePackId/courses/:courseId")
+  updateCourse(
+    @Param("coursePackId") coursePackId: string,
+    @Param("courseId") courseId: string,
+    @Body() body: { title?: string; description?: string },
+  ) {
+    return this.coursePackService.updateCourse(coursePackId, courseId, body ?? {});
+  }
+
+  /** 课程管理：修改某句的原文、翻译、音标 */
+  @UseGuards(AuthGuard)
+  @Patch("statements/:statementId")
+  updateStatement(
+    @Param("statementId") statementId: string,
+    @Body() body: { english?: string; chinese?: string; soundmark?: string },
+  ) {
+    return this.coursePackService.updateStatement(statementId, body ?? {});
   }
 
   /** 删除课程包（连带课程、句子与学习记录） */

@@ -478,7 +478,7 @@ async function main() {
   log("");
   log("[4] 全部完成");
   log("=".repeat(60));
-  log("打开 http://localhost:3000/course-pack 查看，无需重启服务");
+  log("打开 http://localhost:3100/course-pack 查看，无需重启服务");
   process.exit(0);
 }
 

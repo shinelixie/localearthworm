@@ -56,6 +56,21 @@
           今天一共学习 <span class="text-purple-500">{{ formattedMinutes }}分钟</span> 啦！
           <span v-if="totalMinutes >= 30">太强了，给自己来点掌声 😄</span>
         </p>
+
+        <div
+          v-if="sessionResult"
+          class="mt-2 pl-2 text-xs leading-loose sm:pl-4 sm:text-sm lg:pl-14 lg:text-base"
+        >
+          <span class="text-gray-500 dark:text-gray-400">
+            {{ MODE_LABELS[learningPathStore.currentMode] }} ·
+            {{ DIFFICULTY_LABELS[learningPathStore.currentDifficulty] }}
+          </span>
+          <span class="ml-2 font-semibold text-amber-500">
+            {{ sessionResult.rank }} ·{{ " " }}
+            <span>{{ starsText }}</span>
+          </span>
+          <span class="ml-2 text-gray-400"> 正确率 {{ accuracy }}% </span>
+        </div>
       </div>
       <div className="modal-action flex flex-col sm:flex-row gap-2 justify-center sm:justify-end">
         <button
@@ -77,6 +92,21 @@
           课程列表
         </button>
         <button
+          v-if="nextRouteNode"
+          class="btn w-full sm:w-auto"
+          @click="goToNextPractice"
+        >
+          下一个练习
+        </button>
+        <button
+          v-if="isAuthenticated()"
+          class="btn w-full sm:w-auto"
+          @click="goToReview"
+        >
+          去复习
+        </button>
+        <button
+          v-if="!isSplitSession"
           class="btn w-full sm:w-auto"
           @click="goToNextCourse"
         >
@@ -94,24 +124,32 @@
 </template>
 
 <script setup lang="ts">
-import { useModal } from "#imports";
+import { navigateTo, useModal } from "#imports";
 import { computed, ref, watch } from "vue";
 import { toast } from "vue-sonner";
 
+import { postCompleteSession } from "~/api/learning-path";
+import { postRecordSession } from "~/api/practice-session";
+import { postEnqueueReview } from "~/api/review";
 import Dialog from "~/components/common/Dialog.vue";
 import { useActiveCourseMap } from "~/composables/courses/activeCourse";
 import { courseTimer } from "~/composables/courses/courseTimer";
+import { getLastPractice } from "~/composables/courses/lastPractice";
+import { getFullPracticeRoute, markRouteNodeComplete } from "~/composables/courses/practiceRoute";
 import { useConfetti } from "~/composables/main/confetti/useConfetti";
 import { readOneSentencePerDayAloud } from "~/composables/main/englishSound";
 import { useGameMode } from "~/composables/main/game";
 import { useLearningTimeTracker } from "~/composables/main/learningTimeTracker";
+import { useSessionStats } from "~/composables/main/sessionStats";
 import { useShareModal } from "~/composables/main/shareImage/share";
+import { splitSession } from "~/composables/main/splitSession";
 import { useDailySentence, useSummary } from "~/composables/main/summary";
 import { useNavigation } from "~/composables/useNavigation";
 import { isAuthenticated, signIn } from "~/services/auth";
 import { useCourseStore } from "~/store/course";
 import { useCoursePackStore } from "~/store/coursePack";
 import { useGameStore } from "~/store/game";
+import { DIFFICULTY_LABELS, MODE_LABELS, useLearningPathStore } from "~/store/learningPath";
 import { permitSaveStatement, preventSaveStatement } from "~/store/statement";
 import { formatSecondsToTime } from "~/utils/date";
 import { cancelShortcut, registerShortcut } from "~/utils/keyboardShortcuts";
@@ -132,6 +170,127 @@ const { totalMinutes, formattedMinutes } = useTotalLearningTime();
 const gameStore = useGameStore();
 const modal = useModal();
 
+const isSplitSession = computed(() => splitSession.value.enabled);
+
+const learningPathStore = useLearningPathStore();
+const { accuracy } = useSessionStats();
+
+/** 学习路线的下一个节点：当前练习结束后，按「拆分方式 × 难度」顺序继续 */
+const nextRouteNode = computed(() => {
+  const course = courseStore.currentCourse;
+  if (!course) return null;
+
+  const lastPractice = getLastPractice(course.coursePackId, course.id);
+  const splitMode = lastPractice?.splitMode ?? splitSession.value.mode ?? "sentence_only";
+  if (splitMode === "custom") return null;
+
+  const route = getFullPracticeRoute(
+    learningPathStore.config.modes,
+    learningPathStore.config.difficulties,
+  );
+  const index = route.findIndex(
+    (node) =>
+      node.practiceMode === learningPathStore.currentMode &&
+      node.splitMode === splitMode &&
+      node.difficulty === learningPathStore.currentDifficulty,
+  );
+  if (index < 0 || index + 1 >= route.length) return null;
+  return route[index + 1];
+});
+
+const sessionResult = ref<{ rank: string; stars: number; remaining: number } | null>(null);
+const starsText = computed(() => {
+  const stars = sessionResult.value?.stars ?? 0;
+  return `${"★".repeat(stars)}${"☆".repeat(Math.max(3 - stars, 0))}`;
+});
+
+/** 按“每题平均用时”给评级，难度越高要求越严 */
+const RANK_THRESHOLDS: Record<string, { S: number; A: number; B: number }> = {
+  beginner: { S: 8, A: 14, B: 22 },
+  intermediate: { S: 7, A: 12, B: 20 },
+  advanced: { S: 6, A: 10, B: 18 },
+};
+
+function computeRank() {
+  const total = courseTimer.totalRecordNumber() || 1;
+  const secondsPerQuestion = courseTimer.calculateTotalTime() / total;
+  const threshold =
+    RANK_THRESHOLDS[learningPathStore.currentDifficulty] ?? RANK_THRESHOLDS.beginner;
+  // 本地 sessionStats 的 accuracy 是 0-100 的整数
+  const acc = accuracy.value / 100;
+
+  if (acc >= 0.95 && secondsPerQuestion <= threshold.S) return "S";
+  if (acc >= 0.9 && secondsPerQuestion <= threshold.A) return "A";
+  if (acc >= 0.8 && secondsPerQuestion <= threshold.B) return "B";
+  if (acc >= 0.7) return "C";
+  return "D";
+}
+
+async function reportSession() {
+  if (!isAuthenticated() || !courseStore.currentCourse) return;
+
+  const coursePackId = courseStore.currentCourse.coursePackId;
+  const courseId = courseStore.currentCourse.id;
+  const isSplit = splitSession.value.enabled;
+
+  // 标记学习路线上的当前节点完成（自定义拆分不占路线节点）
+  const currentSplitMode =
+    getLastPractice(coursePackId, courseId)?.splitMode ??
+    splitSession.value.mode ??
+    "sentence_only";
+  markRouteNodeComplete(
+    coursePackId,
+    courseId,
+    learningPathStore.currentMode,
+    currentSplitMode,
+    learningPathStore.currentDifficulty,
+  );
+
+  // 学习路径成绩：拆分练习也上报，否则学习路径里看不到完成/星级
+  try {
+    sessionResult.value = await postCompleteSession(coursePackId, {
+      courseId,
+      mode: learningPathStore.currentMode,
+      difficulty: learningPathStore.currentDifficulty,
+      rank: computeRank(),
+      statementCount: courseTimer.totalRecordNumber(),
+    });
+    await learningPathStore.refreshLimits(coursePackId);
+  } catch (error) {
+    console.warn("上报练习结果失败", error);
+  }
+
+  // 复习队列只加整句练习，拆分片段不加
+  if (!isSplit) {
+    try {
+      await postEnqueueReview(coursePackId, courseId, learningPathStore.currentMode);
+    } catch (error) {
+      console.warn("加入复习队列失败", error);
+    }
+  }
+
+  // 记录会话级明细，供成长分析使用（拆分练习也要记录，否则成长分析一直是空的）
+  try {
+    const answerCount = courseTimer.totalRecordNumber();
+    const correctCount = Math.round((accuracy.value / 100) * answerCount);
+
+    await postRecordSession({
+      coursePackId,
+      courseId,
+      mode: learningPathStore.currentMode,
+      splitMode: currentSplitMode,
+      presetKey: learningPathStore.currentDifficulty,
+      durationMs: courseTimer.calculateTotalTime() * 1000,
+      exerciseCount: answerCount,
+      answerCount,
+      correctCount,
+      attemptsSum: answerCount,
+    });
+  } catch (error) {
+    console.warn("记录练习会话失败", error);
+  }
+}
+
 watch(showModal, (val) => {
   if (val) {
     // 阻止包含 statement 完成课程后会自动把用户的进度设置成下一课
@@ -140,8 +299,12 @@ watch(showModal, (val) => {
     preventSaveStatement();
     // 注册回车键进入下一课
     registerShortcut("enter", goToNextCourse);
-    // 显示结算面板代表当前课程已经完成
-    completeCourse();
+    // 显示结算面板代表当前课程已经完成（拆分练习不记服务端完成，只结束计时）
+    if (!splitSession.value.enabled) {
+      completeCourse();
+    }
+    // 上报本次练习成绩（模式/难度/评级/星级/每日额度），并加入复习队列
+    reportSession();
     // 朗读每日一句
     soundSentence();
     // 延迟一小会放彩蛋
@@ -153,6 +316,7 @@ watch(showModal, (val) => {
   } else {
     // 取消回车键进入下一课
     cancelShortcut("enter", goToNextCourse);
+    sessionResult.value = null;
     permitSaveStatement();
   }
 });
@@ -228,6 +392,13 @@ function useCourse() {
       return;
     }
 
+    // 拆分练习没有服务端进度，不做「下一课」
+    if (splitSession.value.enabled) {
+      toast.info("拆分练习不标记课程完成", { duration: 1500 });
+      handleGoToCourseList();
+      return;
+    }
+
     hideSummary();
 
     if (!haveNextCourse.value) {
@@ -277,4 +448,26 @@ function useCourse() {
 const toShare = () => {
   showShareModal();
 };
+
+function goToReview() {
+  const coursePackId = courseStore.currentCourse?.coursePackId;
+  if (!coursePackId) return;
+  hideSummary();
+  navigateTo(`/review/${coursePackId}`);
+}
+
+function goToNextPractice() {
+  const course = courseStore.currentCourse;
+  const next = nextRouteNode.value;
+  if (!course || !next) return;
+
+  const params = new URLSearchParams({
+    mode: next.practiceMode,
+    difficulty: next.difficulty,
+    split: next.splitMode,
+  });
+
+  // 同一节课只变 query，SPA 不会重新挂载；整页跳转让游戏页按新路线重新初始化
+  window.location.href = `/game/${course.coursePackId}/${course.id}?${params.toString()}`;
+}
 </script>

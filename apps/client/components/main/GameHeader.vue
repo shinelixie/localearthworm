@@ -110,6 +110,7 @@ import { useQuestionInput } from "~/components/main/QuestionInput/questionInputH
 import { courseTimer } from "~/composables/courses/courseTimer";
 import { useGameMode } from "~/composables/main/game";
 import { clearQuestionInput } from "~/composables/main/question";
+import { splitSession } from "~/composables/main/splitSession";
 import { useCourseContents } from "~/composables/main/useCourseContents";
 import { useGamePause } from "~/composables/main/useGamePause";
 import { useGameSetting } from "~/composables/main/useGameSetting";
@@ -149,8 +150,11 @@ async function backToCourseList() {
   isLeaving.value = true;
 
   // 离开前把当前题目下标立刻写回，保证再进来时接着这一题学
+  // （拆分练习没有服务端进度，这里直接返回）
   try {
-    await flushProgress();
+    if (!splitSession.value.enabled) {
+      await flushProgress();
+    }
   } finally {
     const coursePackId = courseStore.currentCourse?.coursePackId;
     if (coursePackId) {

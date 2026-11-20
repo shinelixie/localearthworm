@@ -112,7 +112,7 @@ const HEADER_OPTIONS: AnchorAttributes[] = [
 
 // TODO: 设置需要固定导航栏的页面
 const isStickyNavBar = computed(() =>
-  ["index", "User-Setting", "favorites", "favorites-practice", "help"].includes(
+  ["index", "User-Setting", "favorites", "favorites-practice", "help", "growth-analytics"].includes(
     route.name as string,
   ),
 );

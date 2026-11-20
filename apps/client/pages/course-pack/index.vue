@@ -4,6 +4,12 @@
       <span></span>
       <h2 class="text-center text-3xl dark:border-gray-600">课程包列表</h2>
       <div class="flex items-center gap-2 justify-self-end">
+        <NuxtLink
+          to="/manage"
+          class="btn btn-ghost btn-sm"
+        >
+          课程管理
+        </NuxtLink>
         <CreateCoursePackDialog @created="onCreated" />
         <ImportCoursePackDialog @imported="onImported" />
       </div>

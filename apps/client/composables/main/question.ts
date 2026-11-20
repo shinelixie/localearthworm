@@ -108,13 +108,14 @@ export function useInput({
 
   function inputSyncUserInputWords() {
     let position = 0;
+    // 只按固定词数分配，避免用户在中间按空格/粘贴时多出来的片段越界
+    const inputs = inputValue.value.split(separator).slice(0, userInputWords.length);
 
-    inputValue.value.split(separator).forEach((input, index) => {
-      userInputWords[index].userInput = input;
-
-      userInputWords[index].start = position;
-      userInputWords[index].end = position + input.length;
-
+    userInputWords.forEach((word, index) => {
+      const input = inputs[index] ?? "";
+      word.userInput = input;
+      word.start = position;
+      word.end = position + input.length;
       position += input.length + 1; // Add 1 for the space after each word
     });
   }
@@ -143,6 +144,11 @@ export function useInput({
     }
   }
 
+  /** 方向键移动光标后，让高亮词跟随光标 */
+  function syncActiveWordFromCursor() {
+    updateActiveWord(getInputCursorPosition());
+  }
+
   function checkWordCorrect() {
     return userInputWords.every((w) => !w.incorrect);
   }
@@ -161,7 +167,9 @@ export function useInput({
       formatLastWordUserInput(word, index);
       const formattedWord = formatInputText(word.userInput);
 
-      if (formattedWord !== word.text.toLocaleLowerCase()) {
+      // 标点不参与比对：句号、逗号、问号等写不写都算对
+      // （拆分练习的片段常以逗号结尾，让用户必须打标点太苛刻）
+      if (stripPunctuation(formattedWord) !== stripPunctuation(word.text.toLocaleLowerCase())) {
         word.incorrect = true;
       } else {
         word.incorrect = false;
@@ -191,6 +199,11 @@ export function useInput({
   // 将‘ 转化为', 做模糊匹配, 后续可拓展其他的模糊匹配算法
   function formatInputText(word: string) {
     return word.toLocaleLowerCase().replace(/‘|’|“|"|”/g, "'");
+  }
+
+  /** 去掉句读标点，答案比对时忽略（撇号保留，don't / it's 仍然要打对） */
+  function stripPunctuation(text: string) {
+    return text.replace(/[.,!?;:]+/g, "");
   }
 
   // 当前编辑的单词是否为最后一个错误单词
@@ -305,9 +318,13 @@ export function useInput({
   }
 
   function handleKeyboardInput(e: KeyboardEvent, options?: KeyboardInputOptions) {
-    // 禁止方向键移动
-    if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.code)) {
+    // 左右键交给浏览器原生光标移动（组件在 keyup 时同步高亮词）；
+    // 上下键仍禁用，避免单行输入框把光标跳到行首/行尾。
+    if (["ArrowUp", "ArrowDown"].includes(e.code)) {
       e.preventDefault();
+      return;
+    }
+    if (["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.code)) {
       return;
     }
 
@@ -316,6 +333,27 @@ export function useInput({
       e.preventDefault();
       e.stopPropagation(); // 阻止事件冒泡
       handleSpaceSubmitAnswer(options?.useSpaceSubmitAnswer);
+      return;
+    }
+
+    // 空格在「当前词的末尾」才是正常的单词分隔符；
+    // 用方向键把光标移到词中间后按空格，会多切出一个空片段，直接忽略。
+    // 词尾后面已经有空格时也不重复插入，避免出现连续空格。
+    if (mode.value === Mode.Input && e.code === "Space") {
+      const position = getInputCursorPosition();
+      const activeWord = userInputWords.find((word) => word.isActive);
+      const atWordEnd = activeWord ? position === activeWord.end : false;
+      const alreadyFollowedBySpace = inputValue.value[position] === " ";
+      const repeatingSpace =
+        !!activeWord &&
+        activeWord.userInput === "" &&
+        position > 0 &&
+        inputValue.value[position - 1] === " ";
+      if (!atWordEnd || alreadyFollowedBySpace || repeatingSpace) {
+        e.preventDefault();
+      } else {
+        inputChangedCallback?.(e);
+      }
       return;
     }
 
@@ -385,6 +423,7 @@ export function useInput({
     setInputValue,
     activePreviousIncorrectWord,
     handleKeyboardInput,
+    syncActiveWordFromCursor,
     fixIncorrectWord,
     fixFirstIncorrectWord,
     resetUserInputWords,

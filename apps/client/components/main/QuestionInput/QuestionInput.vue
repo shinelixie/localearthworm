@@ -2,7 +2,11 @@
   <div class="quiz-input text-center">
     <div
       class="word-line relative flex flex-wrap justify-center gap-2 transition-all"
-      :class="{ 'show-hint': showPhonetic }"
+      :class="{
+        'show-hint': showPhonetic,
+        'advanced-line': isAdvancedNoHelp,
+        'force-lines': !isChineseToEnglishMode(),
+      }"
     >
       <template
         v-for="(w, i) in courseStore.words"
@@ -14,7 +18,13 @@
           :class="[getWordsClassNames(i), { 'show-hint': showPhonetic }]"
           :style="{ minWidth: `${inputWidth(w)}ch` }"
         >
-          {{ findWordById(i)!.userInput }}
+          <template v-if="caretOffset(i) !== null">
+            <span class="word-typing"
+              >{{ wordInput(i).slice(0, caretOffset(i)!) }}<span class="typing-caret"></span
+              >{{ wordInput(i).slice(caretOffset(i)!) }}</span
+            >
+          </template>
+          <template v-else>{{ wordInput(i) }}</template>
           <span
             v-if="showPhonetic"
             class="cell-phonetic"
@@ -35,7 +45,8 @@
         type="text"
         v-model="inputValue"
         @keydown="handleKeydown"
-        @focus="focusInput"
+        @keyup="handleKeyup"
+        @focus="handleFocus"
         @blur="blurInput"
         @dblclick.prevent
         @mousedown="preventCursorMove"
@@ -45,8 +56,11 @@
       />
     </div>
 
-    <!-- 横线下面的答题辅助：音标提示 / 朗读发音 -->
-    <div class="hint-actions">
+    <!-- 横线下面的答题辅助：音标提示 / 朗读发音（高阶不给帮助） -->
+    <div
+      v-if="!isAdvancedNoHelp"
+      class="hint-actions"
+    >
       <button
         class="hint-btn"
         :class="{ 'is-on': showPhonetic }"
@@ -102,7 +116,7 @@
           播放声音
         </button>
       </div>
-      <MainMasteredBtn></MainMasteredBtn>
+      <MainMasteredBtn v-if="!courseStore.currentStatement?.isFragment"></MainMasteredBtn>
     </div>
   </div>
 </template>
@@ -116,8 +130,10 @@ import { useAnswerTip } from "~/composables/main/answerTip";
 import { useCurrentStatementEnglishSound } from "~/composables/main/englishSound";
 import { isWord } from "~/composables/main/question";
 import { buildWordCards, useWordInfo } from "~/composables/main/wordInfo";
+import { useGamePlayMode } from "~/composables/user/gamePlayMode";
 import { useShowWordsWidth } from "~/composables/user/words";
 import { useCourseStore } from "~/store/course";
+import { useLearningPathStore } from "~/store/learningPath";
 import { cancelShortcut, registerShortcut } from "~/utils/keyboardShortcuts";
 import { isWindows } from "~/utils/platform";
 import { getWordWidth, useQuestionInput } from "./questionInputHelper";
@@ -125,7 +141,8 @@ import { useAnswerError } from "./useAnswerError";
 import { useWrapperQuestionInput } from "./useWrapperQuestionInput";
 
 const courseStore = useCourseStore();
-const { inputEl, focusing, focusInput, blurInput } = useQuestionInput();
+const { inputEl, focusing, cursorPosition, focusInput, blurInput, syncCursorPosition } =
+  useQuestionInput();
 const {
   initializeQuestionInput,
   findWordById,
@@ -133,9 +150,22 @@ const {
   inputValue,
   submitAnswer,
   handleKeyboardInput,
+  syncActiveWordFromCursor,
   setInputValue,
 } = useWrapperQuestionInput();
 const { isShowWordsWidth } = useShowWordsWidth();
+const { isChineseToEnglishMode } = useGamePlayMode();
+const learningPathStore = useLearningPathStore();
+
+// 难度控制输入提示：
+// 入门 = 每个词按长度显示空格；进阶 = 等宽空格；高阶 = 等宽 + 只有一条横线
+const useVariableWidth = computed(() => {
+  if (!isChineseToEnglishMode()) return isShowWordsWidth();
+  return learningPathStore.currentDifficulty === "beginner";
+});
+const isAdvancedNoHelp = computed(
+  () => isChineseToEnglishMode() && learningPathStore.currentDifficulty === "advanced",
+);
 const { toggleAnswerTip, isAnswerTip } = useAnswerTip();
 const { resetCloseTip } = useAnswerError();
 initializeQuestionInput();
@@ -180,11 +210,13 @@ onUnmounted(() => {
 });
 
 function handlePhoneticShortcut(e: KeyboardEvent) {
+  if (isAdvancedNoHelp.value) return;
   e.preventDefault();
   togglePhonetic();
 }
 
 function handlePlaySoundShortcut(e: KeyboardEvent) {
+  if (isAdvancedNoHelp.value) return;
   e.preventDefault();
   playSound();
 }
@@ -236,6 +268,31 @@ function handleSubmitAnswer() {
   submitAnswer();
 }
 
+function wordInput(index: number) {
+  return findWordById(index)?.userInput ?? "";
+}
+
+/** 当前词内光标偏移；光标不在这个词里时返回 null */
+function caretOffset(index: number): number | null {
+  const word = findWordById(index);
+  if (!word || !word.isActive || !focusing.value) return null;
+  const position = cursorPosition.value;
+  if (position < word.start || position > word.end) return null;
+  return Math.min(Math.max(position - word.start, 0), word.userInput.length);
+}
+
+function handleFocus() {
+  focusInput();
+  syncCursorPosition();
+  syncActiveWordFromCursor();
+}
+
+function handleKeyup(e: KeyboardEvent) {
+  if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key)) return;
+  syncCursorPosition();
+  syncActiveWordFromCursor();
+}
+
 function getWordsClassNames(index: number) {
   const word = findWordById(index)!;
   // 当前单词激活 且 聚焦
@@ -255,8 +312,8 @@ function getWordsClassNames(index: number) {
 
 // 输入宽度
 function inputWidth(word: string) {
-  if (!isShowWordsWidth()) {
-    // 不显示对应单词宽度，默认 4 字符宽度
+  if (!useVariableWidth.value) {
+    // 不看单词长度：统一 4 字符宽
     return 4;
   }
 
@@ -280,7 +337,14 @@ function handleKeydown(e: KeyboardEvent) {
   // 1 = 音标提示，2 = 朗读发音
   // 英文句子用不到数字键，这里直接截走，避免数字被写进答案；
   // stopPropagation 防止同时触发 window 上注册的同名快捷键
-  if (!e.ctrlKey && !e.metaKey && !e.altKey && (e.key === "1" || e.key === "2")) {
+  // 高阶难度不给提示（按钮也隐藏）
+  if (
+    !isAdvancedNoHelp.value &&
+    !e.ctrlKey &&
+    !e.metaKey &&
+    !e.altKey &&
+    (e.key === "1" || e.key === "2")
+  ) {
     e.preventDefault();
     e.stopPropagation();
     if (e.key === "1") {
@@ -355,8 +419,47 @@ function preventCursorMove(event: MouseEvent) {
   row-gap: 42px;
 }
 
+/* 高阶：只保留一条横线，隐藏每个单词自己的下划线 */
+.word-line.advanced-line {
+  width: fit-content;
+  max-width: 100%;
+  margin: 0 auto;
+  border-bottom: 2px solid #9cb9cd;
+  padding-bottom: 10px;
+}
+
+.word-line.advanced-line .word-cell {
+  border-bottom-color: transparent !important;
+}
+
+/* 听写/听力：始终保留每个词的下划线，避免高阶规则或样式覆盖导致没地方输入 */
+.word-line.force-lines .word-cell {
+  border-bottom-color: #9cb9cd !important;
+}
+
 .word-cell {
   position: relative;
+}
+
+/* 词块内的可见光标：方向键移动后能看出当前位置 */
+.word-typing {
+  white-space: pre;
+}
+
+.typing-caret {
+  display: inline-block;
+  width: 2px;
+  height: 0.82em;
+  margin: 0 -1px;
+  vertical-align: -0.06em;
+  background-color: #2f7d5e;
+  animation: caret-blink 1s step-end infinite;
+}
+
+@keyframes caret-blink {
+  50% {
+    opacity: 0;
+  }
 }
 
 .cell-phonetic {

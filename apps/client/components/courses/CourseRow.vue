@@ -16,6 +16,17 @@
     <div class="row-main">
       <div class="row-title">{{ title }}</div>
       <div
+        v-if="starCount > 0"
+        class="row-stars"
+        :title="`已获得 ${starCount} 星`"
+      >
+        <span
+          v-for="n in 3"
+          :key="n"
+          >{{ n <= starCount ? "★" : "☆" }}</span
+        >
+      </div>
+      <div
         v-if="description"
         class="row-desc"
         :title="description"
@@ -23,11 +34,11 @@
         {{ description }}
       </div>
 
-      <!-- 学习进度条：已学句数 / 总句数 -->
+      <!-- 学习进度条：优先用学习路线完成度（拆分方式 × 难度），没有路线数据时退回已学句数 -->
       <div
-        v-if="statementCount > 0"
+        v-if="useRouteProgress || statementCount > 0"
         class="row-progress"
-        :title="`已学 ${learnedCount} 句，共 ${statementCount} 句`"
+        :title="progressTitle"
       >
         <div class="progress-track">
           <div
@@ -37,13 +48,47 @@
           ></div>
         </div>
         <span class="progress-label">
-          <b>{{ learnedCount }}</b> / {{ statementCount }} 句
+          <template v-if="useRouteProgress">
+            <b>{{ routeCompleted }}</b> / {{ routeTotal }} 路线
+          </template>
+          <template v-else>
+            <b>{{ learnedCount }}</b> / {{ statementCount }} 句
+          </template>
         </span>
       </div>
     </div>
 
     <!-- 元信息 -->
     <div class="row-meta">
+      <button
+        class="row-route"
+        type="button"
+        title="学习路线（拆分方式 × 难度）"
+        @click.stop="$emit('route')"
+        @keydown.enter.stop
+        @keydown.space.stop
+      >
+        <UIcon
+          name="i-ph-map-trifold"
+          class="route-icon"
+        />
+      </button>
+
+      <button
+        v-if="learnedCount > 0 || hasFinished"
+        class="row-reset"
+        type="button"
+        title="重置本课进度"
+        @click.stop="$emit('reset')"
+        @keydown.enter.stop
+        @keydown.space.stop
+      >
+        <UIcon
+          name="i-ph-arrow-counter-clockwise"
+          class="reset-icon"
+        />
+      </button>
+
       <span
         class="meta-percent"
         :class="{ 'is-done': isDone, 'is-zero': percent === 0 }"
@@ -89,25 +134,51 @@ const props = defineProps<{
   learnedCount: number | undefined;
   coursePackId: string;
   description: string;
+  /** 学习路径获得的最高星级 */
+  stars?: number;
+  /** 学习路线已完成的节点数 / 总节点数（拆分方式 × 难度） */
+  routeCompleted?: number;
+  routeTotal?: number;
 }>();
 
-defineEmits<{ click: [] }>();
+defineEmits<{ click: []; reset: []; route: [] }>();
 
 const { activeCourseMap } = useActiveCourseMap();
 const activeCourseRef = ref<HTMLDivElement>();
 
 const hasFinished = computed(() => !!props.count);
+const starCount = computed(() => props.stars ?? 0);
 const isActiveCourse = computed(() => activeCourseMap.value[props.coursePackId] === props.id);
 const paddedIndex = computed(() => String(props.index).padStart(2, "0"));
 const statementCount = computed(() => props.statementCount ?? 0);
 const learnedCount = computed(() =>
   Math.min(statementCount.value, Math.max(0, props.learnedCount ?? 0)),
 );
-const percent = computed(() => {
+const routeCompleted = computed(() => Math.max(0, props.routeCompleted ?? 0));
+const routeTotal = computed(() => Math.max(0, props.routeTotal ?? 0));
+const useRouteProgress = computed(() => routeTotal.value > 0);
+
+const learnedPercent = computed(() => {
   if (statementCount.value <= 0) return 0;
   return Math.min(100, Math.round((learnedCount.value / statementCount.value) * 100));
 });
-const isDone = computed(() => statementCount.value > 0 && percent.value >= 100);
+const routePercent = computed(() => {
+  if (routeTotal.value <= 0) return 0;
+  return Math.min(100, Math.round((routeCompleted.value / routeTotal.value) * 100));
+});
+const percent = computed(() =>
+  useRouteProgress.value ? routePercent.value : learnedPercent.value,
+);
+const isDone = computed(() =>
+  useRouteProgress.value
+    ? routeTotal.value > 0 && routeCompleted.value >= routeTotal.value
+    : statementCount.value > 0 && learnedPercent.value >= 100,
+);
+const progressTitle = computed(() =>
+  useRouteProgress.value
+    ? `学习路线已完成 ${routeCompleted.value} / ${routeTotal.value} 个节点`
+    : `已学 ${learnedCount.value} 句，共 ${statementCount.value} 句`,
+);
 
 onMounted(() => {
   activeCourseRef.value?.scrollIntoView({
@@ -211,6 +282,13 @@ onMounted(() => {
   white-space: nowrap;
 }
 
+.row-stars {
+  margin-top: 2px;
+  font-size: 13px;
+  letter-spacing: 1px;
+  color: #f0a020;
+}
+
 .course-row.is-active .row-title {
   color: #6d28d9;
 }
@@ -273,6 +351,74 @@ onMounted(() => {
   align-items: center;
   gap: 8px;
   flex-shrink: 0;
+}
+
+.row-reset {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  border-radius: 999px;
+  cursor: pointer;
+  color: #b0b0bd;
+  opacity: 0;
+  transition:
+    opacity 0.16s ease,
+    color 0.16s ease,
+    background-color 0.16s ease;
+}
+
+.course-row:hover .row-reset,
+.row-reset:focus-visible {
+  opacity: 1;
+}
+
+.row-route {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  border-radius: 999px;
+  cursor: pointer;
+  color: #b0b0bd;
+  opacity: 0;
+  transition:
+    opacity 0.16s ease,
+    color 0.16s ease,
+    background-color 0.16s ease;
+}
+
+.course-row:hover .row-route,
+.row-route:focus-visible {
+  opacity: 1;
+}
+
+.row-route:hover {
+  color: #6d28d9;
+  background-color: rgba(139, 92, 246, 0.12);
+}
+
+.route-icon {
+  width: 15px;
+  height: 15px;
+}
+
+.row-reset:hover {
+  color: #d94848;
+  background-color: rgba(217, 72, 72, 0.1);
+}
+
+.reset-icon {
+  width: 15px;
+  height: 15px;
 }
 
 .meta-pill {

@@ -1,8 +1,8 @@
 import { ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdir, readFile, stat, unlink } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { mkdir, readFile, stat, unlink, writeFile } from "node:fs/promises";
+import { dirname, join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 
 import {
@@ -13,8 +13,9 @@ import {
   OnModuleInit,
   ServiceUnavailableException,
 } from "@nestjs/common";
+import { and, eq } from "drizzle-orm";
 
-import { statement } from "@earthworm/schema";
+import { statement, ttsAudio } from "@earthworm/schema";
 import { DB, DbType } from "../global/providers/db.provider";
 
 /**
@@ -190,6 +191,13 @@ export class TtsService implements OnModuleInit, OnModuleDestroy {
     const cached = await this.readCached(file);
     if (cached) return cached;
 
+    // 磁盘没有再查数据库（音频随库备份/导出，清磁盘也不用重新合成）
+    const fromDb = await this.readAudioFromDb(text, voice, rate);
+    if (fromDb) {
+      void this.writeCacheFile(file, fromDb);
+      return fromDb;
+    }
+
     const running = this.inflight.get(file);
     if (running) return running;
 
@@ -213,12 +221,66 @@ export class TtsService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  /** 数据库里的音频缓存（bytea） */
+  private async readAudioFromDb(text: string, voice: string, rate: string): Promise<Buffer | null> {
+    try {
+      const [row] = await this.db
+        .select({ audio: ttsAudio.audio })
+        .from(ttsAudio)
+        .where(
+          and(eq(ttsAudio.sourceText, text), eq(ttsAudio.voice, voice), eq(ttsAudio.rate, rate)),
+        )
+        .limit(1);
+      if (!row?.audio) return null;
+      const buffer = Buffer.from(row.audio);
+      // 与磁盘缓存同样的判断：太小的基本是坏文件
+      return buffer.byteLength >= 1024 ? buffer : null;
+    } catch (error) {
+      this.logger.warn(`读取音频缓存失败：${(error as Error)?.message ?? error}`);
+      return null;
+    }
+  }
+
+  private async saveAudioToDb(text: string, voice: string, rate: string, buffer: Buffer) {
+    try {
+      await this.db
+        .insert(ttsAudio)
+        .values({ sourceText: text, voice, rate, audio: buffer, size: buffer.byteLength })
+        .onConflictDoNothing();
+    } catch (error) {
+      this.logger.warn(`写入音频缓存失败：${(error as Error)?.message ?? error}`);
+    }
+  }
+
+  /** 当前音色/语速下数据库里已有的文本，预生成时用来跳过 */
+  private async listDbTexts(voice: string, rate: string): Promise<Set<string>> {
+    try {
+      const rows = await this.db
+        .select({ sourceText: ttsAudio.sourceText })
+        .from(ttsAudio)
+        .where(and(eq(ttsAudio.voice, voice), eq(ttsAudio.rate, rate)));
+      return new Set(rows.map((row) => row.sourceText));
+    } catch {
+      return new Set();
+    }
+  }
+
+  private async writeCacheFile(file: string, buffer: Buffer) {
+    try {
+      await mkdir(dirname(file), { recursive: true });
+      await writeFile(file, buffer);
+    } catch {
+      // 磁盘缓存写失败不影响返回
+    }
+  }
+
   private async produce(text: string, voice: string, rate: string, file: string): Promise<Buffer> {
     await this.acquire();
     try {
       await this.requestWorker(text, voice, rate, file);
       const buffer = await this.readCached(file);
       if (!buffer) throw new ServiceUnavailableException("合成结果不可用");
+      await this.saveAudioToDb(text, voice, rate, buffer);
       return buffer;
     } finally {
       this.release();
@@ -423,11 +485,12 @@ export class TtsService implements OnModuleInit, OnModuleDestroy {
       lastError: null,
     };
 
-    void this.runPrewarm(texts, voice, rate);
+    const dbTexts = await this.listDbTexts(voice, rate);
+    void this.runPrewarm(texts, voice, rate, dbTexts);
     return this.prewarmStatus();
   }
 
-  private async runPrewarm(texts: string[], voice: string, rate: string) {
+  private async runPrewarm(texts: string[], voice: string, rate: string, dbTexts: Set<string>) {
     // 只用一部分并发，剩下的留给交互请求
     const chunkSize = Math.max(2, this.prewarmConcurrency);
     try {
@@ -435,7 +498,21 @@ export class TtsService implements OnModuleInit, OnModuleDestroy {
         const chunk = texts.slice(index, index + chunkSize);
         await Promise.all(
           chunk.map(async (text) => {
+            // 数据库里已经有（可随库导出），跳过
+            if (dbTexts.has(text)) {
+              this.prewarm.done += 1;
+              return;
+            }
             if (this.hasCache(text, voice, rate)) {
+              // 磁盘有、库里没有：回填数据库
+              try {
+                const buffer = await readFile(this.cacheFileOf(text, voice, rate));
+                if (buffer.byteLength >= 1024) {
+                  await this.saveAudioToDb(text, voice, rate, buffer);
+                }
+              } catch {
+                // 读不到就当作没有，下面照常合成
+              }
               this.prewarm.done += 1;
               return;
             }

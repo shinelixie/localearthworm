@@ -10,8 +10,8 @@ async function bootstrap() {
   // 网页端导入课程包时 CSV 文本走 JSON body，默认 100kb 限制不够
   app.useBodyParser("json", { limit: "10mb" });
   app.enableCors({
-    // 本地版：localhost 和 127.0.0.1 都要放行，
-    // 否则用 127.0.0.1:3000 打开时所有接口都会被浏览器拦掉
+    // 本地版：localhost 和 127.0.0.1 都要放行（任意端口），
+    // 否则用 127.0.0.1:3100 打开时所有接口都会被浏览器拦掉
     origin: [
       /^http:\/\/localhost(:\d+)?$/,
       /^http:\/\/127\.0\.0\.1(:\d+)?$/,

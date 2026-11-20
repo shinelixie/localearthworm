@@ -87,6 +87,24 @@ const showMenuOptions = computed(() => {
       icon: "i-ph-star",
     },
     {
+      title: "复习",
+      name: "review",
+      eventName: handleReview,
+      icon: "i-ph-arrows-clockwise",
+    },
+    {
+      title: "成长分析",
+      name: "growthAnalytics",
+      eventName: handleGrowthAnalytics,
+      icon: "i-ph-chart-line-up",
+    },
+    {
+      title: "课程管理",
+      name: "manage",
+      eventName: handleManage,
+      icon: "i-ph-pencil-ruler",
+    },
+    {
       title: "帮助文档",
       name: "helpDocs",
       eventName: handleHelpDocs,
@@ -109,6 +127,21 @@ function handleHelpDocs() {
 function handleFavorites() {
   closeUserMenu();
   navigateTo("/favorites");
+}
+
+function handleReview() {
+  closeUserMenu();
+  navigateTo("/review");
+}
+
+function handleGrowthAnalytics() {
+  closeUserMenu();
+  navigateTo("/growth-analytics");
+}
+
+function handleManage() {
+  closeUserMenu();
+  navigateTo("/manage");
 }
 
 function handleSetting() {

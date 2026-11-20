@@ -207,6 +207,86 @@ export class CoursePackService {
     }, {});
   }
 
+  /**
+   * 课程管理：修改句子原文/翻译/音标。
+   * 语法标注与拆分树分别走 grammar-analysis / split-tree 接口（jsonb 需要显式转换）。
+   */
+  async updateStatement(
+    statementId: string,
+    input: { english?: string; chinese?: string; soundmark?: string },
+  ) {
+    const patch: { english?: string; chinese?: string; soundmark?: string } = {};
+    if (input.english !== undefined) {
+      const english = String(input.english).trim();
+      if (!english) throw new BadRequestException("英文内容不能为空");
+      patch.english = english;
+    }
+    if (input.chinese !== undefined) {
+      const chinese = String(input.chinese).trim();
+      if (!chinese) throw new BadRequestException("中文翻译不能为空");
+      patch.chinese = chinese;
+    }
+    if (input.soundmark !== undefined) {
+      patch.soundmark = String(input.soundmark).trim();
+    }
+    if (!Object.keys(patch).length) {
+      throw new BadRequestException("没有需要更新的字段");
+    }
+
+    const [updated] = await this.db
+      .update(statement)
+      .set({ ...patch, updatedAt: new Date() })
+      .where(eq(statement.id, statementId))
+      .returning();
+
+    if (!updated) throw new NotFoundException(`Statement with ID ${statementId} not found`);
+    return updated;
+  }
+
+  async updateCoursePack(coursePackId: string, input: { title?: string; description?: string }) {
+    const patch: { title?: string; description?: string } = {};
+    if (input.title !== undefined) {
+      const title = String(input.title).trim();
+      if (!title) throw new BadRequestException("课程包名称不能为空");
+      patch.title = title;
+    }
+    if (input.description !== undefined) patch.description = String(input.description);
+    if (!Object.keys(patch).length) throw new BadRequestException("没有需要更新的字段");
+
+    const [updated] = await this.db
+      .update(coursePack)
+      .set(patch)
+      .where(eq(coursePack.id, coursePackId))
+      .returning();
+    if (!updated) throw new NotFoundException(`CoursePack with ID ${coursePackId} not found`);
+    return updated;
+  }
+
+  async updateCourse(
+    coursePackId: string,
+    courseId: string,
+    input: { title?: string; description?: string },
+  ) {
+    const patch: { title?: string; description?: string } = {};
+    if (input.title !== undefined) {
+      const title = String(input.title).trim();
+      if (!title) throw new BadRequestException("课程名称不能为空");
+      patch.title = title;
+    }
+    if (input.description !== undefined) patch.description = String(input.description);
+    if (!Object.keys(patch).length) throw new BadRequestException("没有需要更新的字段");
+
+    const [updated] = await this.db
+      .update(course)
+      .set(patch)
+      .where(and(eq(course.id, courseId), eq(course.coursePackId, coursePackId)))
+      .returning();
+    if (!updated) {
+      throw new NotFoundException(`Course with ID ${courseId} not found in ${coursePackId}`);
+    }
+    return updated;
+  }
+
   async findCourse(userId: string, coursePackId: string, courseId: string) {
     if (userId) {
       return await this.courseService.findWithUserProgress(coursePackId, courseId, userId);

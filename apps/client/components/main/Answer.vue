@@ -35,32 +35,48 @@
       </button>
     </div>
 
-    <!-- 逐词拆解 -->
-    <div
-      class="word-row"
-      :class="{ 'is-dense': cards.length > 9 }"
-    >
+    <!-- 逐词拆解：有语法标注时按成分框选当前题目的单词 -->
+    <div class="grammar-row">
       <div
-        v-for="(card, index) in cards"
-        :key="`${card.text}-${index}`"
-        class="word-col"
-        @click="handlePlayWordSound(card.text)"
+        v-for="(group, gi) in displayGroups"
+        :key="gi"
+        class="segment-box"
+        :class="{ 'no-role': !group.role }"
+        :style="
+          group.role
+            ? {
+                borderColor: withAlpha(roleColor(group.role), '66'),
+                backgroundColor: withAlpha(roleColor(group.role), '0f'),
+              }
+            : undefined
+        "
       >
         <span
-          v-if="card.pos"
-          class="pos-tag"
-          :style="{ backgroundColor: posColor(card.pos) }"
-          >{{ card.pos }}</span
+          v-if="group.role"
+          class="segment-badge"
+          :style="{ backgroundColor: roleColor(group.role) }"
+          >{{ group.role }}</span
         >
-        <span
-          v-else
-          class="pos-tag pos-tag-empty"
-        ></span>
-
-        <div class="word-en">{{ card.text }}</div>
-        <div class="word-rule"></div>
-        <div class="word-phonetic">{{ card.phonetic || " " }}</div>
-        <div class="word-cn">{{ card.translation || " " }}</div>
+        <div
+          class="word-row"
+          :class="{ 'is-dense': cards.length > 9 }"
+        >
+          <div
+            v-for="(card, index) in group.cards"
+            :key="`${card.text}-${index}`"
+            class="word-col"
+            @click="handlePlayWordSound(card.text)"
+          >
+            <div class="word-phonetic">{{ card.phonetic || " " }}</div>
+            <div class="word-en">{{ card.text }}</div>
+            <div
+              class="word-rule"
+              :style="{ backgroundColor: posColor(card.pos) }"
+            ></div>
+            <div class="word-cn">{{ card.translation || " " }}</div>
+            <div class="word-pos">{{ card.pos || " " }}</div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -98,6 +114,7 @@
         跳过本题
       </button>
       <button
+        v-if="!courseStore.currentStatement?.isFragment"
         class="pill-btn"
         @click="markStatementAsMastered"
       >
@@ -120,12 +137,14 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted } from "vue";
 
+import type { WordCard } from "~/composables/main/wordInfo";
 import {
   recentlyPlayedDetached,
   useCurrentStatementEnglishSound,
 } from "~/composables/main/englishSound";
 import { usePlayWordSound } from "~/composables/main/englishSound/audio";
 import { useGameMode } from "~/composables/main/game";
+import { useGrammarAnalysis } from "~/composables/main/grammarAnalysis";
 import { useSessionStats } from "~/composables/main/sessionStats";
 import { useMastered } from "~/composables/main/useMastered";
 import { buildWordCards, useWordInfo } from "~/composables/main/wordInfo";
@@ -140,6 +159,7 @@ const { showQuestion } = useGameMode();
 const { goToNextQuestion } = useAnswer();
 const { markStatementAsMastered } = useMastered();
 const stats = useSessionStats();
+const { isVisible: isGrammarVisible } = useGrammarAnalysis();
 
 // ---------- 逐词拆解 ----------
 const { isReady, load, lookup } = useWordInfo();
@@ -149,11 +169,76 @@ const cards = computed(() => {
   if (!isReady.value) return [];
   const statement = courseStore.currentStatement;
   if (!statement) return [];
-  return buildWordCards(statement.english, statement.soundmark, lookup);
+  return buildWordCards(statement.english, statement.soundmark, lookup, statement.analysis);
 });
 
 const thesis = computed(() => courseStore.currentStatement?.chinese || "");
 const thesisLength = computed(() => thesis.value.length);
+
+// ---------- 按语法成分框选当前题目的单词 ----------
+const normalizeWord = (text: string) => text.toLowerCase().replace(/[^a-z0-9']/g, "");
+
+const grammarGroups = computed<{ role: string; segmentIndex: number; cards: WordCard[] }[]>(() => {
+  const statement = courseStore.currentStatement;
+  const segments = statement?.analysis?.segments;
+  if (!isGrammarVisible.value || !segments?.length) return [];
+
+  const cardsList = cards.value;
+  if (!cardsList.length) return [];
+
+  const analysisWords: { segmentIndex: number; role: string; norm: string }[] = [];
+  segments.forEach((segment, segmentIndex) => {
+    (segment.words ?? []).forEach((word) => {
+      // 连字符/破折号词组按字母数字片段拆开，与显示卡片用同一套粒度
+      const parts = normalizeWord(word.text).match(/[a-z0-9]+/g) ?? [];
+      parts.forEach((norm) => analysisWords.push({ segmentIndex, role: segment.role, norm }));
+    });
+  });
+  if (!analysisWords.length) return [];
+
+  // 一个显示卡片可能被语法标注拆成多个词（如 unique—a → unique / a），
+  // 因此按“字母数字片段”展平后再对齐，卡片仍作为整体显示。
+  const cardSegments = cardsList.map((card) => normalizeWord(card.text).match(/[a-z0-9]+/g) ?? []);
+  const target = cardSegments.flat();
+  if (!target.length) return [];
+
+  // 当前题目可能是整句，也可能是某个片段：在整句标注里找连续匹配的单词区间
+  let start = -1;
+  for (let i = 0; i + target.length <= analysisWords.length; i += 1) {
+    let matched = true;
+    for (let j = 0; j < target.length; j += 1) {
+      if (analysisWords[i + j].norm !== target[j]) {
+        matched = false;
+        break;
+      }
+    }
+    if (matched) {
+      start = i;
+      break;
+    }
+  }
+  if (start < 0) return [];
+
+  const groups: { role: string; segmentIndex: number; cards: WordCard[] }[] = [];
+  let offset = start;
+  cardsList.forEach((card, cardIndex) => {
+    const first = analysisWords[offset];
+    const last = groups[groups.length - 1];
+    if (last && last.segmentIndex === first.segmentIndex) {
+      last.cards.push(card);
+    } else {
+      groups.push({ role: first.role, segmentIndex: first.segmentIndex, cards: [card] });
+    }
+    offset += cardSegments[cardIndex].length;
+  });
+  return groups;
+});
+
+const displayGroups = computed(() =>
+  grammarGroups.value.length
+    ? grammarGroups.value
+    : [{ role: "", segmentIndex: -1, cards: cards.value }],
+);
 
 // ---------- 上一题 ----------
 const prevStatement = computed(() => {
@@ -165,22 +250,55 @@ const prevStatement = computed(() => {
 
 // ---------- 词性配色 ----------
 const POS_COLORS: Record<string, string> = {
-  动词: "#6d4aff",
-  形容词: "#0d9a9a",
-  名词: "#c026d3",
-  副词: "#2563eb",
-  代词: "#7c8798",
-  介词: "#7c8798",
-  连词: "#7c8798",
-  冠词: "#94a3b8",
-  助动词: "#8b5cf6",
-  数词: "#0ea5e9",
+  名词: "#3b82f6",
+  动词: "#22c55e",
+  助动词: "#22c55e",
+  形容词: "#a855f7",
+  副词: "#f59e0b",
+  介词: "#a855f7",
+  限定词: "#14b8a6",
+  冠词: "#14b8a6",
+  代词: "#3b82f6",
+  数词: "#3b82f6",
+  连词: "#ec4899",
+  从属连词: "#ec4899",
+  关系副词: "#f59e0b",
   感叹词: "#f59e0b",
   缩写: "#94a3b8",
 };
 
 function posColor(pos: string) {
   return POS_COLORS[pos] || "#7c8798";
+}
+
+// 语法成分颜色（与解析卡片一致）
+const ROLE_COLORS: Record<string, string> = {
+  主语: "#e8a13c",
+  谓语: "#e05252",
+  宾语: "#4b7bec",
+  表语: "#2d9cdb",
+  定语: "#22a06b",
+  状语: "#9b51e0",
+  补语: "#219653",
+  连词: "#ec4899",
+  宾语从句: "#4b7bec",
+  定语从句: "#22a06b",
+  状语从句: "#9b51e0",
+  目的状语: "#9b51e0",
+  原因状语: "#9b51e0",
+  条件状语: "#9b51e0",
+  时间状语: "#9b51e0",
+  地点状语: "#9b51e0",
+  方式状语: "#9b51e0",
+  语法结构: "#7b8a80",
+};
+
+function roleColor(role: string) {
+  return ROLE_COLORS[role] || "#7b8a80";
+}
+
+function withAlpha(hex: string, alpha: string) {
+  return `${hex}${alpha}`;
 }
 
 // ---------- 操作 ----------
@@ -337,39 +455,76 @@ function registerShortcutKeyForNextQuestion() {
   gap: 34px;
 }
 
+/* 语法成分框选：每个成分一个圆角框 + 顶部标签 */
+.grammar-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 36px 26px;
+  margin-top: 34px;
+  width: 100%;
+}
+
+.segment-box {
+  position: relative;
+  padding: 26px 24px 10px;
+  border: 1px solid;
+  border-radius: 18px;
+}
+
+.segment-box.no-role {
+  padding: 0;
+  border: none;
+  background: transparent;
+}
+
+.segment-badge {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  padding: 3px 13px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.5;
+  color: #fff;
+  white-space: nowrap;
+  box-shadow: 0 2px 6px rgba(20, 40, 30, 0.12);
+}
+
+.segment-box .word-row {
+  margin-top: 0;
+  width: auto;
+  gap: 36px;
+}
+
+.segment-box .word-row.is-dense {
+  gap: 26px;
+}
+
+.segment-box.no-role .word-row {
+  width: 100%;
+  gap: 56px;
+}
+
+.segment-box.no-role .word-row.is-dense {
+  gap: 34px;
+}
+
 .word-col {
   position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
   min-width: 70px;
-  /* 给绝对定位的音标与释义留出位置，使列宽只由英文单词决定 */
-  padding-bottom: 50px;
   cursor: pointer;
   transition: transform 0.15s ease;
 }
 
 .word-col:hover {
   transform: translateY(-2px);
-}
-
-.pos-tag {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  height: 22px;
-  padding: 0 12px;
-  margin-bottom: 7px;
-  border-radius: 999px;
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.8px;
-  color: #fff;
-  white-space: nowrap;
-}
-
-.pos-tag-empty {
-  background-color: transparent;
 }
 
 .word-en {
@@ -388,39 +543,45 @@ function registerShortcutKeyForNextQuestion() {
 
 .word-rule {
   width: 100%;
-  height: 1.5px;
-  margin-top: 8px;
+  height: 4px;
+  margin: 7px 0 5px;
+  border-radius: 999px;
   background-color: rgba(23, 73, 59, 0.38);
 }
 
 .word-phonetic {
-  position: absolute;
-  left: 50%;
-  bottom: 26px;
-  transform: translateX(-50%);
-  font-size: 13px;
+  font-size: 12px;
+  line-height: 1.4;
   letter-spacing: 0.4px;
   color: #5c7f99;
   white-space: nowrap;
 }
 
 .word-cn {
-  position: absolute;
-  left: 50%;
-  bottom: 0;
-  transform: translateX(-50%);
-  max-width: 150px;
+  max-width: 180px;
   overflow: hidden;
   text-overflow: ellipsis;
-  font-size: 17px;
+  font-size: 15px;
   font-weight: 500;
-  line-height: 1.3;
+  line-height: 1.35;
   color: #17493b;
   white-space: nowrap;
 }
 
 .is-dense .word-cn {
-  font-size: 15px;
+  max-width: 150px;
+  font-size: 13.5px;
+}
+
+.word-pos {
+  margin-top: 2px;
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: #9aa89f;
+}
+
+.is-dense .word-pos {
+  font-size: 10.5px;
 }
 
 /* 统计 */
@@ -515,11 +676,28 @@ function registerShortcutKeyForNextQuestion() {
   .thesis {
     font-size: 30px;
   }
+  .grammar-row {
+    gap: 28px 14px;
+  }
+  .segment-box {
+    padding: 22px 12px 8px;
+  }
   .word-en {
     font-size: 28px;
   }
-  .word-row {
-    gap: 26px;
+  .is-dense .word-en {
+    font-size: 22px;
+  }
+  .word-row,
+  .segment-box.no-role .word-row {
+    gap: 22px;
+  }
+  .segment-box .word-row {
+    gap: 18px;
+  }
+  .word-cn {
+    max-width: 120px;
+    font-size: 13px;
   }
 }
 </style>

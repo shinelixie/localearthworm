@@ -21,9 +21,6 @@ export class CourseService {
       where: and(eq(course.id, courseId), eq(course.coursePackId, coursePackId)),
       with: {
         statements: {
-          columns: {
-            id: false,
-          },
           orderBy: [asc(statement.order)],
         },
       },

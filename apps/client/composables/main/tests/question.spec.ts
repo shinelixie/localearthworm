@@ -287,7 +287,7 @@ describe("question", () => {
     expect(userInputWords[2].isActive).toBe(true);
   });
 
-  it("should prevent move", () => {
+  it("allows horizontal caret movement but blocks vertical arrows", () => {
     const setInputCursorPosition = () => {};
     const getInputCursorPosition = () => 0;
 
@@ -300,21 +300,74 @@ describe("question", () => {
     initialize();
     setInputValue("i ea ap");
 
-    // move to left
-    const preventDefaultLeft = vi.fn();
-    handleKeyboardInput({
-      code: "ArrowLeft",
-      preventDefault: preventDefaultLeft,
-    } as any as KeyboardEvent);
-    expect(preventDefaultLeft).toBeCalled();
+    // 左右键交给浏览器移动光标，不拦截默认行为
+    for (const code of ["ArrowLeft", "ArrowRight", "Home", "End"]) {
+      const preventDefault = vi.fn();
+      handleKeyboardInput({
+        code,
+        preventDefault,
+      } as any as KeyboardEvent);
+      expect(preventDefault).not.toBeCalled();
+    }
 
-    // move to right
-    const preventDefaultRight = vi.fn();
+    // 上下键仍拦截
+    for (const code of ["ArrowUp", "ArrowDown"]) {
+      const preventDefault = vi.fn();
+      handleKeyboardInput({
+        code,
+        preventDefault,
+      } as any as KeyboardEvent);
+      expect(preventDefault).toBeCalled();
+    }
+  });
+
+  it("syncs the active word after horizontal caret movement", () => {
+    let cursor = 0;
+    const { setInputValue, initialize, syncActiveWordFromCursor, userInputWords } = useInput({
+      source: () => "i eat apple",
+      setInputCursorPosition: () => {},
+      getInputCursorPosition: () => cursor,
+    });
+
+    initialize();
+    cursor = 7; // 光标在末尾
+    setInputValue("i ea ap");
+    expect(userInputWords[2].isActive).toBe(true);
+
+    // "i ea ap" 中 ea 的区间是 [2,4]，把光标移到 2
+    cursor = 2;
+    syncActiveWordFromCursor();
+    expect(userInputWords[1].isActive).toBe(true);
+    expect(userInputWords[2].isActive).toBe(false);
+  });
+
+  it("allows a word separator only at the current word end", () => {
+    let cursor = 1;
+    const { setInputValue, handleKeyboardInput, initialize } = useInput({
+      source: () => "i eat apple",
+      setInputCursorPosition: () => {},
+      getInputCursorPosition: () => cursor,
+    });
+
+    initialize();
+    setInputValue("i");
+    expect(cursor).toBe(1);
+
+    const preventAtEnd = vi.fn();
     handleKeyboardInput({
-      code: "ArrowLeft",
-      preventDefault: preventDefaultRight,
+      code: "Space",
+      preventDefault: preventAtEnd,
     } as any as KeyboardEvent);
-    expect(preventDefaultRight).toBeCalled();
+    expect(preventAtEnd).not.toBeCalled();
+
+    // 光标移到词中间再按空格：不切词
+    cursor = 0;
+    const preventInMiddle = vi.fn();
+    handleKeyboardInput({
+      code: "Space",
+      preventDefault: preventInMiddle,
+    } as any as KeyboardEvent);
+    expect(preventInMiddle).toBeCalled();
   });
 
   it("should prevent space when fix input", async () => {
@@ -644,6 +697,72 @@ describe("question", () => {
 
       expect(inputChangedCallback).toBeCalledTimes(2);
     });
+  });
+});
+
+describe("punctuation-insensitive grading", () => {
+  function makeInput(source: string) {
+    return useInput({
+      source: () => source,
+      setInputCursorPosition: () => {},
+      getInputCursorPosition: () => 0,
+    });
+  }
+
+  it("does not require the trailing comma that the fragment ends with", () => {
+    const { setInputValue, submitAnswer, initialize } = makeInput(
+      "Many studies of longevity show,",
+    );
+    initialize();
+    setInputValue("Many studies of longevity show");
+
+    const correct = vi.fn();
+    const wrong = vi.fn();
+    submitAnswer(correct, wrong);
+
+    expect(correct).toBeCalled();
+    expect(wrong).not.toBeCalled();
+  });
+
+  it("does not require the trailing period of a full sentence", () => {
+    const { setInputValue, submitAnswer, initialize } = makeInput(
+      "physical activity is a part of life.",
+    );
+    initialize();
+    setInputValue("physical activity is a part of life");
+
+    const correct = vi.fn();
+    const wrong = vi.fn();
+    submitAnswer(correct, wrong);
+
+    expect(correct).toBeCalled();
+    expect(wrong).not.toBeCalled();
+  });
+
+  it("accepts punctuation typed even when the expected text has none", () => {
+    const { setInputValue, submitAnswer, initialize } = makeInput("Many studies of longevity show");
+    initialize();
+    setInputValue("Many studies of longevity show,");
+
+    const correct = vi.fn();
+    const wrong = vi.fn();
+    submitAnswer(correct, wrong);
+
+    expect(correct).toBeCalled();
+    expect(wrong).not.toBeCalled();
+  });
+
+  it("still requires the apostrophe in contractions", () => {
+    const { setInputValue, submitAnswer, initialize } = makeInput("I don't know.");
+    initialize();
+    setInputValue("I dont know");
+
+    const correct = vi.fn();
+    const wrong = vi.fn();
+    submitAnswer(correct, wrong);
+
+    expect(correct).not.toBeCalled();
+    expect(wrong).toBeCalled();
   });
 });
 

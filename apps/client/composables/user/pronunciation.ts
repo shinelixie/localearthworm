@@ -103,7 +103,7 @@ export function usePronunciation() {
     const text = (english ?? "").trim();
     if (!text) return "";
     // apiBase 一般在 http 插件里初始化；取不到时退回本地默认端口
-    const base = getApiBase() || "http://localhost:3001";
+    const base = getApiBase() || "http://localhost:3101";
     const params = new URLSearchParams({ voice: getTtsVoice(), text });
     return `${base}/tts/speak?${params.toString()}`;
   }

@@ -153,6 +153,14 @@ tools/preview/
 tools/pg.log
 storage/
 
+# 离线批处理的失败清单（每次运行重新生成）
+tools/.split-tree-failures.json
+tools/.grammar-analysis-failures.json
+
+# 数据迁移前的一次性备份
+tools/backup-cet-*.csv
+tools/backup-cet-*.tsv
+
 # 一次性调试脚本（依赖本机数据 ID，不适合入库）
 tools/inject-csv.js
 tools/inject-and-merge.js

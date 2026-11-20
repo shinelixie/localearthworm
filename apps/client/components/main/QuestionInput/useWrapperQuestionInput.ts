@@ -34,6 +34,7 @@ export function useWrapperQuestionInput() {
     submitAnswer,
     setInputValue,
     handleKeyboardInput,
+    syncActiveWordFromCursor,
     isFixMode,
     isFixInputMode,
   } = useInput({
@@ -97,5 +98,6 @@ export function useWrapperQuestionInput() {
         },
       });
     },
+    syncActiveWordFromCursor,
   };
 }

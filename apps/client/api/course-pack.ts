@@ -76,6 +76,31 @@ export interface ImportCoursePackOptions {
   courseTitles?: string[];
 }
 
+/** 课程管理：修改课程包名称/简介 */
+export async function updateCoursePackMeta(
+  coursePackId: string,
+  input: { title?: string; description?: string },
+) {
+  const http = getHttp();
+  return await http<CoursePacksItemApiResponse>(`/course-pack/${coursePackId}`, {
+    method: "patch",
+    body: input,
+  });
+}
+
+/** 课程管理：修改课程名称/简介 */
+export async function updateCourseMeta(
+  coursePackId: string,
+  courseId: string,
+  input: { title?: string; description?: string },
+) {
+  const http = getHttp();
+  return await http<CourseApiResponse>(`/course-pack/${coursePackId}/courses/${courseId}`, {
+    method: "patch",
+    body: input,
+  });
+}
+
 /** 新建空课程包 */
 export async function createCoursePack(title: string, description = "") {
   const http = getHttp();

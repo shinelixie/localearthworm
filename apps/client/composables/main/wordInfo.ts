@@ -1,5 +1,7 @@
 import { ref } from "vue";
 
+import type { StatementAnalysis } from "~/types/models/statement-analysis";
+
 export interface WordInfo {
   /** 中文词性，如「动词」 */
   pos: string;
@@ -65,6 +67,48 @@ export function useWordInfo() {
 }
 
 /**
+ * 片段的中文提示：优先用整句语法标注里的逐词释义（语境义，如 apply → 应用/施加），
+ * 没有标注时退回词表逐词拼接。词表查不到的词直接跳过。
+ */
+export function fragmentChinese(
+  english: string,
+  lookup: (word: string) => WordInfo | null,
+  analysis?: StatementAnalysis | null,
+): string {
+  const annotated = analysisWordMap(analysis);
+  const words = english.split(/\s+/).filter(Boolean);
+  const parts: string[] = [];
+  for (const word of words) {
+    const translated = annotated.get(normalizeWord(word))?.meaning || lookup(word)?.translation;
+    if (translated) parts.push(translated);
+  }
+  return parts.join("");
+}
+
+function normalizeWord(word: string) {
+  return word.toLowerCase().replace(/[^a-z']/g, "");
+}
+
+/** 整句语法标注里的逐词释义（词 → 语境义/词性/音标） */
+function analysisWordMap(analysis?: StatementAnalysis | null) {
+  const map = new Map<string, { meaning: string; pos: string; phonetic: string }>();
+  if (!analysis?.segments) return map;
+
+  for (const segment of analysis.segments) {
+    for (const word of segment.words ?? []) {
+      const key = normalizeWord(word.text);
+      if (!key || map.has(key)) continue;
+      map.set(key, {
+        meaning: word.meaning ?? "",
+        pos: word.pos ?? "",
+        phonetic: word.phonetic ?? "",
+      });
+    }
+  }
+  return map;
+}
+
+/**
  * 拆分整句音标为逐词音标。
  * 项目数据里的 soundmark 是按词分隔的，如 "/haʊ/ /dɪd/ /ju/"，
  * 但偶尔出现一个块覆盖多个词（"/ɡʊd ˈmɔrnɪŋ/"），对不齐时退回词典音标。
@@ -87,25 +131,28 @@ function splitSoundmark(soundmark: string | undefined, count: number): string[] 
   return [];
 }
 
-/** 生成逐词卡片数据：单词 / 音标 / 词性 / 释义 */
+/** 生成逐词卡片数据：单词 / 音标 / 词性 / 释义（优先用语法标注里的语境义） */
 export function buildWordCards(
   english: string,
   soundmark: string | undefined,
   lookup: (word: string) => WordInfo | null,
+  analysis?: StatementAnalysis | null,
 ): WordCard[] {
   const words = english.split(/\s+/).filter(Boolean);
   const phonetics = splitSoundmark(soundmark, words.length);
+  const annotated = analysisWordMap(analysis);
 
   return words.map((word, index) => {
     const info = lookup(word);
+    const fromAnalysis = annotated.get(normalizeWord(word));
     const fromSentence = phonetics[index] || "";
     const fromDict = info?.phonetic ? `/${info.phonetic}/` : "";
     return {
-      text: word,
+      text: word.replace(/^[^A-Za-z0-9']+|[^A-Za-z0-9']+$/g, "") || word,
       clean: word.toLowerCase().replace(/[^a-z']/g, ""),
-      phonetic: fromSentence || fromDict,
-      pos: info?.pos || "",
-      translation: info?.translation || "",
+      phonetic: fromAnalysis?.phonetic || fromSentence || fromDict,
+      pos: fromAnalysis?.pos || info?.pos || "",
+      translation: fromAnalysis?.meaning || info?.translation || "",
     };
   });
 }

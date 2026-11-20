@@ -71,6 +71,27 @@
       "when": 1722416147800,
       "tag": "0009_typical_xorn",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1794830801930,
+      "tag": "0010_add_fragment_translation_and_tts_audio",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1794831477783,
+      "tag": "0011_add_learning_path_and_review",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1794832071715,
+      "tag": "0012_add_statement_split_tree",
+      "breakpoints": true
     }
   ]
 }

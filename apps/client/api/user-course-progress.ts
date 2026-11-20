@@ -37,3 +37,19 @@ export async function fetchUserRecentCoursePacks() {
     },
   )) as UserRecentCoursePack[];
 }
+
+/** 重置单课进度（断点 + 完成次数） */
+export async function fetchResetCourseProgress(coursePackId: string, courseId: string) {
+  const http = getHttp();
+  return await http(`/user-course-progress/course/${coursePackId}/${courseId}`, {
+    method: "delete",
+  });
+}
+
+/** 重置整个课程包进度 */
+export async function fetchResetCoursePackProgress(coursePackId: string) {
+  const http = getHttp();
+  return await http(`/user-course-progress/course-pack/${coursePackId}`, {
+    method: "delete",
+  });
+}

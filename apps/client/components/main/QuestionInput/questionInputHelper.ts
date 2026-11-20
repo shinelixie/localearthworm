@@ -2,6 +2,8 @@ import { ref } from "vue";
 
 const inputEl = ref<HTMLInputElement>();
 const focusing = ref(true);
+/** 当前输入光标位置（用于在词块里画可见光标） */
+const cursorPosition = ref(0);
 
 export function useQuestionInput() {
   function focusInput() {
@@ -16,19 +18,30 @@ export function useQuestionInput() {
 
   function setInputCursorPosition(position: number) {
     inputEl.value?.setSelectionRange(position, position);
+    cursorPosition.value = position;
   }
 
   function getInputCursorPosition() {
-    return inputEl.value?.selectionStart || 0;
+    const position = inputEl.value?.selectionStart || 0;
+    cursorPosition.value = position;
+    return position;
+  }
+
+  /** 浏览器原生光标移动（方向键）后同步一次位置 */
+  function syncCursorPosition() {
+    cursorPosition.value = inputEl.value?.selectionStart || 0;
+    return cursorPosition.value;
   }
 
   return {
     inputEl,
     focusing,
+    cursorPosition,
     focusInput,
     blurInput,
     setInputCursorPosition,
     getInputCursorPosition,
+    syncCursorPosition,
   };
 }
 

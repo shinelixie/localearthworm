@@ -16,25 +16,51 @@ const DICT_CSV = path.resolve(ROOT, "../.tmp-dict/ecdict.csv");
 const OUT = path.resolve(ROOT, "apps/client/public/dict/wordinfo.json");
 
 // ---------- 1. 取出项目里出现的所有英文单词 ----------
-const psql = path.join(ROOT, "tools/pgsql/bin/psql.exe");
-const raw = execFileSync(
-  psql,
-  [
-    "-h",
-    "127.0.0.1",
-    "-p",
-    "5433",
-    "-U",
-    "postgres",
-    "-d",
-    "earthworm",
-    "-t",
-    "-A",
-    "-c",
-    "select english from statements;",
-  ],
-  { encoding: "utf8", env: { ...process.env, PGCLIENTENCODING: "UTF8" } },
-);
+// 跨平台取数：优先 psql（PATH 或仓库内免安装版）；都没有时退回 docker 容器里的 psql
+// （Linux 本地版数据库跑在 docker compose 的 db 服务里）。
+function findPsql() {
+  const isWin = process.platform === "win32";
+  const binName = isWin ? "psql.exe" : "psql";
+  const bundled = path.join(ROOT, "tools/pgsql/bin", binName);
+  if (fs.existsSync(bundled)) return bundled;
+  // 没带免安装版时用系统 psql
+  return "psql";
+}
+function runSql(sql) {
+  const psql = findPsql();
+  try {
+    return execFileSync(
+      psql,
+      ["-h", "127.0.0.1", "-p", "5434", "-U", "postgres", "-d", "earthworm", "-t", "-A", "-c", sql],
+      { encoding: "utf8", env: { ...process.env, PGCLIENTENCODING: "UTF8" } },
+    );
+  } catch (err) {
+    if (String(err.code) === "ENOENT") {
+      // 系统没有 psql：走 docker 容器内的 psql
+      return execFileSync(
+        "docker",
+        [
+          "compose",
+          "exec",
+          "-T",
+          "db",
+          "psql",
+          "-U",
+          "postgres",
+          "-d",
+          "earthworm",
+          "-t",
+          "-A",
+          "-c",
+          sql,
+        ],
+        { encoding: "utf8", cwd: ROOT },
+      );
+    }
+    throw err;
+  }
+}
+const raw = runSql("select english from statements;");
 
 const words = new Set();
 for (const line of raw.split(/\r?\n/)) {
@@ -80,6 +106,9 @@ const POS_OVERRIDE = {
   most: "形容词",
   less: "形容词",
   very: "副词",
+  negative: "形容词",
+  boost: "动词",
+  esteem: "名词",
   the: "冠词",
   a: "冠词",
   an: "冠词",
@@ -146,6 +175,30 @@ const POS_OVERRIDE = {
   here: "副词",
 };
 
+// 高频多义词的 ECDICT 首义项经常是生僻义（apply → 涂），这里人工校正为常用/语境义。
+// 有逐词语法标注的句子会优先用标注里的语境义，这个表只兜底没有标注的句子。
+const TRANSLATION_OVERRIDE = {
+  apply: "应用；施加；申请",
+  negative: "负面的；消极的",
+  stereotype: "刻板印象",
+  stereotypes: "刻板印象",
+  boost: "提升；增强",
+  esteem: "自尊；尊重",
+  criticise: "批评",
+  criticised: "批评",
+  criticize: "批评",
+  criticized: "批评",
+  defensive: "防御性的",
+  longevity: "长寿",
+  legitimacy: "合法性",
+  evoke: "唤起；引起",
+  refocus: "重新聚焦",
+  "well-being": "幸福；福祉",
+  psychological: "心理的",
+  claim: "主张；声称",
+  "part of": "……的一部分",
+};
+
 /** 从释义里取词性：看每段开头的 "n." / "v." / "adj." */
 function pickPos(translation) {
   for (const seg of translation.split(/\\n|\n/)) {
@@ -188,7 +241,7 @@ function flushRow() {
     const translation = fields[iTrans] || "";
     dict.set(word, {
       pos: POS_OVERRIDE[word] || pickPos(translation),
-      t: shortTranslation(translation),
+      t: TRANSLATION_OVERRIDE[word] || shortTranslation(translation),
       p: (fields[iPhonetic] || "").trim(),
     });
   }

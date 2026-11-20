@@ -10,6 +10,18 @@
       </NuxtLink>
     </div>
     <HomeRecentCoursePack />
+    <div class="mb-2 mt-10 flex justify-end gap-4">
+      <NuxtLink
+        href="/review"
+        class="link text-blue-500 no-underline hover:opacity-75"
+        >去复习 →</NuxtLink
+      >
+      <NuxtLink
+        href="/growth-analytics"
+        class="link text-blue-500 no-underline hover:opacity-75"
+        >查看成长分析 →</NuxtLink
+      >
+    </div>
     <HomeCalendarGraph
       class="mt-10"
       :data="learningDailyTimeList"

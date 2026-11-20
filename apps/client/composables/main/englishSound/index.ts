@@ -13,7 +13,7 @@ let lastPronunciationUrl = "";
 export function useCurrentStatementEnglishSound() {
   const courseStore = useCourseStore();
   const { toolBarData } = useToolbar();
-  const { isDictationMode } = useGamePlayMode();
+  const { isAudioFirstMode } = useGamePlayMode();
 
   watchEffect(() => {
     const word = courseStore.currentStatement?.english;
@@ -27,7 +27,7 @@ export function useCurrentStatementEnglishSound() {
 
   return {
     playSound: (options?: PlayOptions) => {
-      if (isDictationMode()) {
+      if (isAudioFirstMode()) {
         const { times, rate, interval } = toolBarData;
         return play({ times, rate, interval });
       } else {
@@ -57,6 +57,49 @@ export function playEnglish(english: string) {
  * watchEffect 会把 src 换成新句子，正在播的读音会被直接掐掉。
  * 所以这里用一条单独的 Audio 播，翻页不影响它。
  */
+// ---------------- 片段音频预取 ----------------
+// 拆分练习的片段不在全库预生成范围内，第一次点播放要现场合成（约 2 秒，
+// 代理抖动时更久）。这里在进入拆分会话 / 换题时提前把接下来几题拉一遍，
+// 服务端会落库+落盘，真正播放时基本是静态文件。
+const primedAudio = new Set<string>();
+const primeQueue: string[] = [];
+let primeActive = 0;
+const PRIME_CONCURRENCY = 3;
+
+export function primeEnglishAudio(texts: string[]) {
+  if (typeof window === "undefined") return;
+  for (const raw of texts) {
+    const text = (raw ?? "").trim();
+    if (!text) continue;
+    const url = getPronunciationUrl(text);
+    if (!url || primedAudio.has(url)) continue;
+    primedAudio.add(url);
+    primeQueue.push(url);
+  }
+  void pumpPrimeQueue();
+}
+
+async function pumpPrimeQueue() {
+  while (primeActive < PRIME_CONCURRENCY && primeQueue.length) {
+    const url = primeQueue.shift()!;
+    primeActive += 1;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 20000);
+    try {
+      const response = await fetch(url, { signal: controller.signal });
+      await response.arrayBuffer();
+      if (!response.ok) primedAudio.delete(url);
+    } catch {
+      // 失败下次再试，不要把它永久记成「已预取」
+      primedAudio.delete(url);
+    } finally {
+      clearTimeout(timer);
+      primeActive -= 1;
+      if (primeQueue.length) void pumpPrimeQueue();
+    }
+  }
+}
+
 let detachedAudio: Audio | null = null;
 let detachedPlayedAt = 0;
 

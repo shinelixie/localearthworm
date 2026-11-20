@@ -1,4 +1,7 @@
+import { toast } from "vue-sonner";
+
 import { usePronunciation } from "~/composables/user/pronunciation";
+import { getEffectiveVolume } from "~/composables/user/volume";
 
 /**
  * 发音播放
@@ -21,8 +24,44 @@ const audio = new Audio();
 let currentText = "";
 /** 当前曲目的备选音源（有道），主音源合成失败时换它 */
 let currentFallback = "";
+/** 上一次播放的清理函数：换题/重播时先摘掉旧监听，避免 error 事件串台 */
+let activePlayCleanup: (() => void) | null = null;
+
+function stopActivePlayback() {
+  const cleanup = activePlayCleanup;
+  activePlayCleanup = null;
+  cleanup?.();
+}
+
+/**
+ * 自动播放被浏览器策略拦截后（刷新页面时没有用户手势），
+ * 等用户第一次点击/按键时补播一次，避免「刷新后怎么都不出声」。
+ */
+let pendingRetryOnGesture: (() => void) | null = null;
+
+function cancelRetryOnGesture() {
+  if (!pendingRetryOnGesture || typeof document === "undefined") return;
+  document.removeEventListener("pointerdown", pendingRetryOnGesture, true);
+  document.removeEventListener("keydown", pendingRetryOnGesture, true);
+  pendingRetryOnGesture = null;
+}
+
+function retryOnFirstGesture(retry: () => void) {
+  if (typeof document === "undefined" || pendingRetryOnGesture) return;
+
+  const handler = () => {
+    cancelRetryOnGesture();
+    retry();
+  };
+
+  pendingRetryOnGesture = handler;
+  document.addEventListener("pointerdown", handler, true);
+  document.addEventListener("keydown", handler, true);
+}
 
 export function updateSource(src: string, text = "", fallbackSrc = "") {
+  // 换题时先停掉旧播放并摘掉监听，否则旧 audio 的 error/playing 事件会串到新句子
+  stopActivePlayback();
   currentText = text || textFromSrc(src);
   currentFallback = fallbackSrc;
   audio.src = src;
@@ -102,6 +141,7 @@ export function speakWithBrowser(
     const utterance = new window.SpeechSynthesisUtterance(content);
     utterance.lang = lang;
     utterance.rate = rate;
+    utterance.volume = getEffectiveVolume();
     const voice = pickVoice(isChinese ? "zh" : "en");
     if (voice) utterance.voice = voice;
 
@@ -168,6 +208,7 @@ export function usePlayWordSound() {
       speakWithBrowser(lastWord);
       return;
     }
+    wordAudio.volume = getEffectiveVolume();
     wordAudio.src = sentenceUrl;
     wordAudio.play()?.catch(() => speakWithBrowser(lastWord));
   }
@@ -188,6 +229,7 @@ export function usePlayWordSound() {
     }
     lastWord = word;
     fallbackTried = false;
+    wordAudio.volume = getEffectiveVolume();
     wordAudio.src = getFallbackPronunciationUrl(word) || getPronunciationUrl(word);
     wordAudio.play()?.catch((error: DOMException) => {
       // 自动播放策略拦截不算音源失败，别触发兜底
@@ -215,17 +257,28 @@ const DefaultPlayOptions = {
   interval: 500,
 };
 
+/**
+ * 未缓存的句子第一次合成通常 2 秒左右，代理抖动时会更久。
+ * 等太短会误判成失败、切到浏览器语音（有些 Linux/Chrome 没有语音包，
+ * 结果就是「怎么点都没声音」）。留足时间，真正报错才切兜底。
+ */
+const MAIN_AUDIO_WAIT_MS = 8000;
+const FALLBACK_AUDIO_WAIT_MS = 4000;
+
 export function play(playOptions?: PlayOptions) {
   const { times, rate, interval } = Object.assign({}, DefaultPlayOptions, playOptions);
 
   const text = currentText;
+
+  // 由新的播放取代旧的播放/待补播，避免两次 play 抢同一个 audio 元素
+  cancelRetryOnGesture();
+  stopActivePlayback();
 
   // 没有文本就没什么可读的，避免去请求 "audio=undefined"
   if (!text.trim()) return () => {};
 
   // 已知这段读不出来 / 有道整体不可用 → 直接用浏览器语音
   if (Date.now() < preferBrowserUntil || failedTexts.has(text)) {
-    audio.pause();
     speakWithBrowser(text, { rate, times });
     return stopBrowserSpeech;
   }
@@ -236,10 +289,12 @@ export function play(playOptions?: PlayOptions) {
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
   let guardId: ReturnType<typeof setTimeout> | undefined;
 
-  const fallbackToBrowser = () => {
+  const fallbackToBrowser = (permanent: boolean) => {
     if (usingBrowserSpeech) return;
     usingBrowserSpeech = true;
-    markAudioFailed(text);
+    // 只有真正报错才记入失败名单；只是合成慢/超时不要拉黑，
+    // 下一次点击还应该优先尝试服务端音频（可能已经缓存好了）。
+    if (permanent) markAudioFailed(text);
     speakWithBrowser(text, { rate, times });
   };
 
@@ -248,6 +303,8 @@ export function play(playOptions?: PlayOptions) {
    * 换源后要重新计一次超时：有道同样可能卡住或返回 500。
    */
   const handleAudioError = () => {
+    // 1 = MEDIA_ERR_ABORTED：换源/暂停时的正常中断，不是音源失败
+    if (audio.error?.code === 1) return;
     if (!usingFallbackAudio && currentFallback) {
       usingFallbackAudio = true;
       started = false;
@@ -255,17 +312,17 @@ export function play(playOptions?: PlayOptions) {
       audio.load();
       audio.playbackRate = rate;
       audio.play()?.catch((error: DOMException) => {
-        if (error?.name === "NotAllowedError") return;
-        fallbackToBrowser();
+        if (error?.name === "NotAllowedError" || error?.name === "AbortError") return;
+        fallbackToBrowser(true);
       });
       clearTimeout(guardId);
       guardId = setTimeout(() => {
         if (started || audio.readyState >= 2) return;
-        fallbackToBrowser();
-      }, 2200);
+        fallbackToBrowser(false);
+      }, FALLBACK_AUDIO_WAIT_MS);
       return;
     }
-    fallbackToBrowser();
+    fallbackToBrowser(true);
   };
 
   // 一旦真的开始出声，就不用再兜底了（注意：不能拿 paused 判断，
@@ -273,27 +330,49 @@ export function play(playOptions?: PlayOptions) {
   const handlePlaying = () => {
     started = true;
     clearTimeout(guardId);
+    // 这一段其实能正常出声，之前的失败记录可以撤销
+    failedTexts.delete(text);
   };
 
   audio.addEventListener("error", handleAudioError);
   audio.addEventListener("playing", handlePlaying);
 
   audio.playbackRate = rate;
+  audio.volume = getEffectiveVolume();
   const playPromise = audio.play();
   playPromise?.catch?.((error: DOMException) => {
-    // 浏览器自动播放策略拦截（比如进页面时自动朗读，还没有用户手势），
-    // 这不是「有道合成失败」，不能记进失败名单，否则之后点按钮也会一直走本地语音
-    if (error?.name === "NotAllowedError") return;
-    fallbackToBrowser();
+    // 浏览器自动播放策略拦截（比如刷新页面后自动朗读，还没有用户手势），
+    // 这不是「有道合成失败」，不能记进失败名单，否则之后点按钮也会一直走本地语音。
+    // 等第一次点击/按键时补播一次，让刷新后也能自然出声。
+    if (error?.name === "AbortError") return;
+    if (error?.name === "NotAllowedError") {
+      // 告诉用户为什么没声音，并等他第一次点击/按键补播
+      toast.info("浏览器拦截了自动发音：点击页面或按任意键就能听到", {
+        id: "autoplay-blocked",
+        duration: 3500,
+      });
+      retryOnFirstGesture(() => {
+        // 补播时已经换题了就不播旧句子
+        if (currentText !== text) return;
+        audio.volume = getEffectiveVolume();
+        audio.play()?.catch((error: DOMException) => {
+          if (error?.name === "AbortError") return;
+          fallbackToBrowser(false);
+        });
+      });
+      return;
+    }
+    fallbackToBrowser(true);
   });
 
-  // 网络卡住时也别让用户干等：2.2 秒还没拿到可播放的数据才切本地
+  // 网络卡住时也别让用户干等：未缓存的句子第一次合成要几秒，
+  // 给足 8 秒；超时只临时切本地语音，不拉黑这段文字。
   // （用 readyState 判断，而不是 playing 事件——部分环境/无音频设备时
   //   playing 事件可能不触发，但音频其实已经在正常播放）
   guardId = setTimeout(() => {
     if (started || audio.readyState >= 2) return;
-    fallbackToBrowser();
-  }, 2200);
+    fallbackToBrowser(false);
+  }, MAIN_AUDIO_WAIT_MS);
 
   if (times > 1) {
     audio.addEventListener("ended", handleEnded, false);
@@ -303,7 +382,10 @@ export function play(playOptions?: PlayOptions) {
   function handleEnded() {
     timeoutId = setTimeout(() => {
       if (index < times) {
-        audio.play()?.catch?.(() => fallbackToBrowser());
+        audio.play()?.catch?.((error: DOMException) => {
+          if (error?.name === "AbortError") return;
+          fallbackToBrowser(false);
+        });
         index++;
       } else {
         index = 1;
@@ -312,7 +394,7 @@ export function play(playOptions?: PlayOptions) {
     }, interval);
   }
 
-  return () => {
+  const cleanup = () => {
     clearTimeout(timeoutId);
     clearTimeout(guardId);
     audio.removeEventListener("error", handleAudioError);
@@ -321,5 +403,8 @@ export function play(playOptions?: PlayOptions) {
     audio.currentTime = 0;
     audio.removeEventListener("ended", handleEnded);
     if (usingBrowserSpeech) stopBrowserSpeech();
+    if (activePlayCleanup === cleanup) activePlayCleanup = null;
   };
+  activePlayCleanup = cleanup;
+  return cleanup;
 }

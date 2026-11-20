@@ -63,7 +63,7 @@ pnpm db:init
 pnpm db:upload          # 导入内置 55 课语料
 ```
 
-然后双击 **`start-earthworm.bat`**，等约 25 秒自动打开 http://localhost:3000 。
+然后双击 **`start-earthworm.bat`**，等约 25 秒自动打开 http://localhost:3100 。
 停止用 `stop-earthworm.bat`。
 
 ### 关于 `tools/pgsql`、`tools/redis`
@@ -80,7 +80,7 @@ pnpm db:upload          # 导入内置 55 课语料
 或者沿用上游的 `docker-compose.yml`：
 
 ```bash
-docker compose up -d      # 5433 / 6379
+docker compose up -d      # 5434 / 6381
 pnpm dev:serve            # 后端 dev
 pnpm dev:client           # 前端 dev
 ```
@@ -97,9 +97,9 @@ pip install edge-tts
 服务启动 15 秒后会自动补齐缺失音频（`TTS_AUTO_PREWARM=true`），也可以手动触发：
 
 ```bash
-curl -X POST http://localhost:3001/tts/prewarm          # 全库补齐
-curl http://localhost:3001/tts/prewarm/status           # 看进度
-curl -X POST http://localhost:3001/tts/cache/purge      # 清缓存
+curl -X POST http://localhost:3101/tts/prewarm          # 全库补齐
+curl http://localhost:3101/tts/prewarm/status           # 看进度
+curl -X POST http://localhost:3101/tts/cache/purge      # 清缓存
 ```
 
 关掉语音（`TTS_ENABLED=false`）也不影响使用，会自动降级到浏览器 `speechSynthesis`。
@@ -124,15 +124,15 @@ PostgreSQL / Redis，`pnpm install` 后重新构建即可。
 | [部署说明.md](./部署说明.md)             | 一键启动、端口、目录结构、数据库结构变动、维护命令                                 |
 | [界面改版说明.md](./界面改版说明.md)     | 历次界面改版的实现记录（设计取舍、踩过的坑）                                       |
 
-站内也有同样的文档：打开 http://localhost:3000/help 。
+站内也有同样的文档：打开 http://localhost:3100/help 。
 
 ## 目录结构
 
 ```
 earthworm/
 ├── start-earthworm.bat / stop-earthworm.bat   一键启停
-├── apps/api/            NestJS 后端（3001）
-├── apps/client/         Nuxt 3 前端（3000）
+├── apps/api/            NestJS 后端（3101）
+├── apps/client/         Nuxt 3 前端（3100）
 ├── packages/schema/     drizzle 表结构
 ├── packages/xingrong-courses/  语料与 CSV 导入器
 ├── tools/
