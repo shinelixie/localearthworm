@@ -14,6 +14,7 @@ const LOCAL_USER = {
   sub: "local-user",
   username: "本地学习者",
   name: "本地学习者",
+  // 头像在展示处再补 base 前缀（见 useAvatar），这里保留原始路径
   picture: "/logo.png",
   email: "local@earthworm.local",
   emailVerified: false,

@@ -1,0 +1,62 @@
+name: GitHub Pages（纯前端版）
+
+# 构建并部署「纯前端版」到 GitHub Pages：
+#   https://shinelixie.github.io/localearthworm/
+#
+# 课程内容随仓库发布（apps/client/public/data/courses.json，由
+# `pnpm web-data` 从本机库导出后提交），所以构建不需要数据库；
+# 学习进度由用户浏览器 IndexedDB 保存，也不需要。
+#
+# 本地重新生成课程内容：pnpm web-data && git commit ...（见 README「纯前端版」）
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20.12.2"
+
+      - name: Setup pnpm
+        run: corepack enable
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build pure-frontend site
+        run: pnpm -F client build:web
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: apps/client/.output/public
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

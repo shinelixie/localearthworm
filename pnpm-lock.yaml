@@ -293,6 +293,9 @@ importers:
       daisyui:
         specifier: ^4.6.0
         version: 4.12.2(postcss@8.4.38)
+      fake-indexeddb:
+        specifier: 5.0.2
+        version: 5.0.2
       happy-dom:
         specifier: ^13.3.1
         version: 13.10.1

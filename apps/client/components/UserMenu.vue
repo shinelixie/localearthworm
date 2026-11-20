@@ -11,7 +11,7 @@
             <div class="mask mask-squircle h-14 w-14">
               <UAvatar
                 size="xl"
-                :src="userStore.user?.avatar"
+                :src="userStore.user?.avatar ? webAsset(userStore.user.avatar) : undefined"
                 alt="Avatar"
               />
             </div>
@@ -64,6 +64,7 @@ import { computed } from "vue";
 
 import { Theme, useDarkMode } from "~/composables/darkMode";
 import { useUserMenu } from "~/composables/user/useUserMenu";
+import { webAsset } from "~/composables/web/webAsset";
 import { useUserStore } from "~/store/user";
 
 const { isUserMenuOpen, closeUserMenu } = useUserMenu();

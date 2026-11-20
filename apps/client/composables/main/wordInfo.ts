@@ -1,6 +1,7 @@
 import { ref } from "vue";
 
 import type { StatementAnalysis } from "~/types/models/statement-analysis";
+import { webAsset } from "~/composables/web/webAsset";
 
 export interface WordInfo {
   /** 中文词性，如「动词」 */
@@ -41,7 +42,7 @@ export function useWordInfo() {
       return;
     }
     if (!pending) {
-      pending = fetch("/dict/wordinfo.json")
+      pending = fetch(webAsset("/dict/wordinfo.json"))
         .then((res) => (res.ok ? res.json() : {}))
         .then((data) => {
           dict = data as Record<string, WordInfoTuple>;

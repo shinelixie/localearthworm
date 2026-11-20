@@ -3,6 +3,7 @@
 // 本模板使用了 tailwindcss，这是 Satori 的实验性功能
 
 import type { ShareImageTemplateData } from "../share";
+import { webAsset } from "~/composables/web/webAsset";
 
 export const tpl_1 = ({
   zhSentence,
@@ -88,7 +89,7 @@ export const tpl_1 = ({
         {
           type: "img",
           props: {
-            src: "/logo.png",
+            src: webAsset("/logo.png"),
             width: "48",
             height: "48",
             alt: "Earthworm logo",

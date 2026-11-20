@@ -44,6 +44,8 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 
+import { webAsset } from "~/composables/web/webAsset";
+
 interface Props {
   coursePack: {
     id: string;
@@ -68,9 +70,11 @@ const DEFAULT_COVER = "/covers/default.svg";
 const coverFailed = ref(false);
 
 const coverSrc = computed(() => {
-  if (coverFailed.value) return DEFAULT_COVER;
+  if (coverFailed.value) return webAsset(DEFAULT_COVER);
   const cover = (props.coursePack?.cover ?? "").trim();
-  return cover === "" ? DEFAULT_COVER : cover;
+  if (cover === "") return webAsset(DEFAULT_COVER);
+  // 外链封面原样用；站点内的本地封面补 base 前缀
+  return cover.startsWith("/") ? webAsset(cover) : cover;
 });
 
 function onCoverError() {

@@ -60,8 +60,14 @@ pnpm -F client build                          # 前端产物 apps/client/.output
 
 ```bash
 pnpm db:init
-pnpm db:upload          # 导入内置 55 课语料
 ```
+
+再选一种方式导入课程内容：
+
+- **完整内容（推荐）**：`data/earthworm-content.sql.gz` 是本仓库当前全部内容
+  （5 个课程包、语法分析、拆分树），导入方法见 [data/README.md](./data/README.md)。
+- **仅内置语料**：`pnpm db:upload` 只导入内置 55 课《新概念》语料，
+  且会清空已有课程（seed 脚本是整体重建），适合只要入门包的场景。
 
 然后双击 **`start-earthworm.bat`**，等约 25 秒自动打开 http://localhost:3100 。
 停止用 `stop-earthworm.bat`。
@@ -103,6 +109,30 @@ curl -X POST http://localhost:3101/tts/cache/purge      # 清缓存
 ```
 
 关掉语音（`TTS_ENABLED=false`）也不影响使用，会自动降级到浏览器 `speechSynthesis`。
+
+## 纯前端版（GitHub Pages）
+
+不需要服务器和数据库，浏览器里直接用：
+[https://shinelixie.github.io/localearthworm/](https://shinelixie.github.io/localearthworm/)
+
+- **课程内容**随站点发布（`apps/client/public/data/courses.json`，由 `pnpm web-data`
+  从本机库导出并提交进仓库）
+- **学习数据**（进度/断点/收藏/练习记录）存本机浏览器 IndexedDB，不上传、换设备不迁移
+- **发音**联网走有道 dictvoice；离线时退到浏览器系统语音
+- **没有**：服务端 TTS 合成、FSRS 复习排期（复习入口在，队列为空）、翻译、排行榜
+- 路由用 hash（`…/#/course-pack/…`），静态服务器刷新不 404
+
+重新发布（课程内容有更新时）：
+
+```bash
+pnpm web-data                    # 从本机 Postgres 重新导出 courses.json
+git commit -am "chore(web): 更新课程内容数据"
+git push                          # push 到 main 后 GitHub Actions 自动构建部署
+```
+
+本地构建验证：`pnpm build:web`（产物在 `apps/client/.output/public`，
+`npx serve apps/client/.output/public` 可预览）。
+仓库名不是 `xxx.github.io` 时站点在 `https://<用户>.github.io/<仓库名>/`。
 
 ## 数据在哪 / 怎么备份
 

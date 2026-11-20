@@ -16,7 +16,7 @@
                 width="48"
                 height="48"
                 class="mr-6 hidden overflow-hidden rounded-md md:block"
-                src="/logo.png"
+                :src="webAsset('/logo.png')"
                 alt="earth-worm-logo"
               />
               <h1 class="text-wrap text-2xl font-extrabold leading-normal dark:text-white">
@@ -59,7 +59,7 @@
               @click="openUserMenu"
             >
               <UAvatar
-                :src="userStore.user?.avatar"
+                :src="userStore.user?.avatar ? webAsset(userStore.user.avatar) : undefined"
                 alt="Avatar"
               />
             </div>
@@ -86,6 +86,7 @@ import { computed } from "vue";
 import { useRoute } from "vue-router";
 
 import { useUserMenu } from "~/composables/user/useUserMenu";
+import { webAsset } from "~/composables/web/webAsset";
 import { isAuthenticated, signIn } from "~/services/auth";
 import { useUserStore } from "~/store/user";
 

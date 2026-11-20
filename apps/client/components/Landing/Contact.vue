@@ -8,7 +8,7 @@
               width="48"
               height="48"
               class="mr-6 overflow-hidden rounded-md"
-              src="/logo.png"
+              :src="webAsset('/logo.png')"
               alt="earth-worm-logo"
             />
             <span class="mt-4 text-3xl">Earthworm</span>
@@ -141,7 +141,9 @@
   </footer>
 </template>
 
-<script setup lang="ts"></script>
+<script setup lang="ts">
+import { webAsset } from "~/composables/web/webAsset";
+</script>
 
 <style scoped>
 .icon-link {

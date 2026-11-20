@@ -16,6 +16,13 @@ function addClarity() {
   });
 }
 
+// 纯前端（GitHub Pages）构建：NUXT_PUBLIC_WEB=true（build:web 通过 --dotenv .env.web 注入）。
+// 该开关让 api/http.ts 改走浏览器端后端（composables/web/）：
+// 内容读 public/data/courses.json，学习数据写 IndexedDB，发音走有道 + 浏览器兜底。
+const isWeb = process.env.NUXT_PUBLIC_WEB === "true" || !process.env.API_BASE;
+// GitHub Pages 子路径：https://<user>.github.io/<repo>/
+const webBase = process.env.NUXT_PUBLIC_BASE_URL || "/localearthworm/";
+
 export default defineNuxtConfig({
   ssr: false,
   // default is true, reference to https://nuxt.com/docs/guide/directory-structure/components
@@ -27,12 +34,26 @@ export default defineNuxtConfig({
     enabled: true,
   },
   app: {
+    // 纯前端版部署在仓库子路径下，资源与数据文件都挂在这个 base 下
+    baseURL: isWeb ? webBase : "/",
     head: {
       title: "Earthworm",
-      link: [{ rel: "icon", href: "/favicon.ico" }],
+      link: [{ rel: "icon", href: `${isWeb ? webBase.replace(/\/?$/, "") : ""}/favicon.ico` }],
       script: appScripts,
     },
   },
+  // 纯前端版只做静态 SPA 壳，不抓取客户端路由（那是前端 hash 路由处理的）
+  nitro: isWeb
+    ? {
+        prerender: {
+          crawlLinks: false,
+          routes: ["/"],
+        },
+      }
+    : {},
+  // 纯前端版部署在 GitHub Pages：静态服务器对深链刷新不做 SPA 回退会 404，
+  // hashMode 让路由走 #/xxx，URL 永远不发往服务器，刷新/分享都不会 404
+  router: isWeb ? { options: { hashMode: true } } : {},
   css: ["~/assets/css/globals.css"],
   modules: [
     "@nuxt/ui",
@@ -45,6 +66,8 @@ export default defineNuxtConfig({
   runtimeConfig: {
     public: {
       apiBase: process.env.API_BASE || "",
+      // 浏览器端后端开关（见上）。API_BASE 为空也视为 web 模式，兜底安全。
+      web: isWeb,
       endpoint: process.env.LOGTO_ENDPOINT || "",
       appId: process.env.LOGTO_APP_ID || "",
       backendEndpoint: process.env.BACKEND_ENDPOINT || "",
