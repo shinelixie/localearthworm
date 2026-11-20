@@ -1,6 +1,7 @@
 import { watchEffect } from "vue";
 
 import type { PlayOptions } from "./audio";
+import { getApiBase } from "~/api/http";
 import { useToolbar } from "~/composables/main/dictation";
 import { useGamePlayMode } from "~/composables/user/gamePlayMode";
 import { usePronunciation } from "~/composables/user/pronunciation";
@@ -61,6 +62,9 @@ export function playEnglish(english: string) {
 // 拆分练习的片段不在全库预生成范围内，第一次点播放要现场合成（约 2 秒，
 // 代理抖动时更久）。这里在进入拆分会话 / 换题时提前把接下来几题拉一遍，
 // 服务端会落库+落盘，真正播放时基本是静态文件。
+//
+// 纯前端版（apiBase 为空）主音源是跨域的有道 dictvoice，fetch 必被 CORS
+// 拦截，而且没有服务端缓存可预热——播放走 <audio> 本身不需要预取，直接跳过。
 const primedAudio = new Set<string>();
 const primeQueue: string[] = [];
 let primeActive = 0;
@@ -68,6 +72,7 @@ const PRIME_CONCURRENCY = 3;
 
 export function primeEnglishAudio(texts: string[]) {
   if (typeof window === "undefined") return;
+  if (!getApiBase()) return; // 纯前端版：无服务端 TTS 可预热，跳过
   for (const raw of texts) {
     const text = (raw ?? "").trim();
     if (!text) continue;
