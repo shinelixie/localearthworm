@@ -49,9 +49,12 @@ let dataPromise: Promise<WebData> | null = null;
 export function loadWebData(): Promise<WebData> {
   if (dataPromise) return dataPromise;
   dataPromise = (async () => {
-    // 构建 base（GitHub Pages 是 /localearthworm/，本地开发是 /）
-    const base = (globalThis as any).__NUXT__?.config?.app?.baseURL || window.location.origin;
-    const url = new URL("data/courses.json", `${base.replace(/\/?$/, "/")}`).href;
+    // baseURL 是相对子路径（GitHub Pages 是 /localearthworm-web/，本地是 /）。
+    // new URL() 的 base 必须是「绝对」URL，所以拼上 origin 再交给它。
+    const configBase =
+      ((globalThis as any).__NUXT__?.config?.app?.baseURL as string | undefined) || "/";
+    const absoluteBase = `${window.location.origin}${configBase.replace(/\/?$/, "/")}`;
+    const url = new URL("data/courses.json", absoluteBase).href;
     const res = await fetch(url);
     if (!res.ok) throw new Error(`加载课程数据失败：${res.status}`);
     return (await res.json()) as WebData;
