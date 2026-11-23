@@ -26,15 +26,6 @@
 
     <!-- 右侧 -->
     <div class="flex items-center gap-4">
-      <div @click="toggleGrammarAnalysis">
-        <UTooltip :text="isGrammarVisible ? '隐藏语法分析' : '显示语法分析'">
-          <UIcon
-            name="i-ph-tree-structure"
-            :class="['clickable-item h-6 w-6', { 'text-fuchsia-500': isGrammarVisible }]"
-          />
-        </UTooltip>
-      </div>
-
       <div @click="volumeModal?.open()">
         <UTooltip :text="`音量 ${volume}%`">
           <UIcon
@@ -118,7 +109,6 @@ import Dialog from "~/components/common/Dialog.vue";
 import { useQuestionInput } from "~/components/main/QuestionInput/questionInputHelper";
 import { courseTimer } from "~/composables/courses/courseTimer";
 import { useGameMode } from "~/composables/main/game";
-import { useGrammarAnalysis } from "~/composables/main/grammarAnalysis";
 import { clearQuestionInput } from "~/composables/main/question";
 import { splitSession } from "~/composables/main/splitSession";
 import { useCourseContents } from "~/composables/main/useCourseContents";
@@ -134,7 +124,6 @@ import { flushProgress } from "~/store/statement";
 
 const { shortcutKeys } = useShortcutKeyMode();
 const { isDictationMode } = useGamePlayMode();
-const { isVisible: isGrammarVisible, toggle: toggleGrammarAnalysis } = useGrammarAnalysis();
 const { volume, icon: volumeIcon } = useVolume();
 const backgroundTintModal = ref();
 const volumeModal = ref();

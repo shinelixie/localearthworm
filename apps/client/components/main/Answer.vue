@@ -144,7 +144,6 @@ import {
 } from "~/composables/main/englishSound";
 import { usePlayWordSound } from "~/composables/main/englishSound/audio";
 import { useGameMode } from "~/composables/main/game";
-import { useGrammarAnalysis } from "~/composables/main/grammarAnalysis";
 import { useSessionStats } from "~/composables/main/sessionStats";
 import { useMastered } from "~/composables/main/useMastered";
 import { buildWordCards, useWordInfo } from "~/composables/main/wordInfo";
@@ -159,7 +158,6 @@ const { showQuestion } = useGameMode();
 const { goToNextQuestion } = useAnswer();
 const { markStatementAsMastered } = useMastered();
 const stats = useSessionStats();
-const { isVisible: isGrammarVisible } = useGrammarAnalysis();
 
 // ---------- 逐词拆解 ----------
 const { isReady, load, lookup } = useWordInfo();
@@ -185,8 +183,9 @@ const wordAtoms = (text: string) => text.toLowerCase().match(/[a-z0-9]+/g) ?? []
 
 const grammarGroups = computed<{ role: string; segmentIndex: number; cards: WordCard[] }[]>(() => {
   const statement = courseStore.currentStatement;
+  // 成分框选恒开启（不再有开关），仅当句子没有语法标注时不显示
   const segments = statement?.analysis?.segments;
-  if (!isGrammarVisible.value || !segments?.length) return [];
+  if (!segments?.length) return [];
 
   const cardsList = cards.value;
   if (!cardsList.length) return [];
