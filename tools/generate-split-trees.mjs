@@ -38,6 +38,10 @@ const IDS = (argValue("--ids", "") || "")
   .split(",")
   .map((s) => s.trim())
   .filter(Boolean);
+const SKIP_IDS = (argValue("--skip-ids", "") || "")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
 const PACK = argValue("--pack", "");
 
 // ---------------- 读取语句 ----------------
@@ -103,6 +107,8 @@ function runSql(sql) {
 const where = [];
 if (!FORCE) where.push("s.split_tree is null");
 if (IDS.length) where.push(`s.id in (${IDS.map((id) => `'${id.replace(/'/g, "''")}'`).join(",")})`);
+if (SKIP_IDS.length)
+  where.push(`s.id not in (${SKIP_IDS.map((id) => `'${id.replace(/'/g, "''")}'`).join(",")})`);
 if (PACK) where.push(`cp.id = '${PACK.replace(/'/g, "''")}'`);
 
 const sql = `
@@ -130,11 +136,23 @@ if (!rows.length) {
 console.log(`待处理 ${rows.length} 句，并发 ${CONCURRENCY}`);
 
 // ---------------- 句子 → 确定性 tokens ----------------
+/**
+ * 词内标点（撇号除外）切成独立 token：
+ *   numbers—but → numbers | but(punct=—)；into"—after → into(punct=") | after(punct=—)
+ * 不然整段粘在一个 word 里，模型按正常切分输出时 tokens 永远对不齐。
+ */
+function splitChunk(chunk) {
+  const match = chunk.match(/[^A-Za-z0-9']+/);
+  if (!match || match.index === 0 || match.index + match[0].length >= chunk.length) return [chunk];
+  return [...splitChunk(chunk.slice(0, match.index)), ...splitChunk(chunk.slice(match.index))];
+}
+
 function tokenize(raw) {
   return raw
     .trim()
     .split(/\s+/)
     .filter(Boolean)
+    .flatMap(splitChunk)
     .map((chunk, idx) => {
       const leading = (chunk.match(/^[^A-Za-z0-9']+/) || [""])[0];
       const trailing = (chunk.match(/[^A-Za-z0-9']+$/) || [""])[0];
@@ -340,15 +358,11 @@ function buildTree(rawText, parsed) {
 }
 
 // ---------------- LLM ----------------
-const SYSTEM_PROMPT = `你是英语教学句法分析器。把英文句子转成「嵌套拆分树」JSON。规则：
-1. 先按子句边界切大块（主句/从句/并列分句/目的状语）。
-2. 虚词与连接词（in/to/of/that/when/where/and/is 等）在叶子层单独成节点；上一层再与其支配的短语合并。
-3. 紧密修饰搭配保持原子化（Many studies、negative stereotypes、become defensive、to boost、our own esteem 等），2~3 词不拆。
-4. 树必须是自左向右滚雪球的嵌套结构：每个父节点的子节点按顺序连续排列、不重叠、不漏词；根节点覆盖整句。
-5. 每个节点给 en（不含标点、单词间单空格）、zh（自然中文；叶子可直译，合并节点必须按中文语序意译，不能拼接子节点中文）、range=[起始token下标,结束token下标]（闭区间）。
-6. tokens 覆盖整句所有词，标点从 word 剥离到 punct，顺序与原文一致。
-只输出紧凑 JSON（不要缩进换行、不要解释、不要 Markdown）：
-{"rawText":"...","tokens":[{"idx":0,"word":"We","punct":""}],"tree":{"range":[0,15],"en":"...","zh":"...","children":[...]}}`;
+// 系统提示词独立成文件（2026-11-23 版：固定短语 level:1、虚词不外挂长语块、
+// 根 zh 严格复用原译文、zh 禁空/纯标点）。改切分规则只改 tools/prompts/split-tree-system.md。
+const SYSTEM_PROMPT = fs
+  .readFileSync(path.resolve(import.meta.dirname, "prompts/split-tree-system.md"), "utf8")
+  .trim();
 
 async function requestTree(sentence, chinese = "", tokens = [], hint = "") {
   const controller = new AbortController();
@@ -358,11 +372,12 @@ async function requestTree(sentence, chinese = "", tokens = [], hint = "") {
       .map((token) => `${token.idx}:${token.word}${token.punct ? `[${token.punct}]` : ""}`)
       .join(" ");
     const userContent = [
-      `英文：${sentence}`,
-      chinese ? `整句中文参考：${chinese}` : "",
+      "# 待处理句子",
+      `英文原句：${sentence}`,
+      `中文译文：${chinese || "（无译文，按英文自然意译）"}`,
       `Tokens（0 基下标，必须原样使用这些下标，共 ${tokens.length} 个）：${tokenList}`,
+      "range 只能引用上面这些 token 下标；根节点 tree.zh 必须与上面「中文译文」一字不差。",
       hint ? `上次输出不合格：${hint}。请严格按规则重新输出。` : "",
-      "range 只能引用上面这些 token 下标；各节点的 zh 与整句中文参考保持用词和语序一致，但不要直接复制整句译文。",
     ]
       .filter(Boolean)
       .join("\n");
@@ -427,6 +442,9 @@ const startedAt = Date.now();
 
 function retryHint(error) {
   if (!error) return "";
+  if (error.includes("zh 与原译文不一致")) {
+    return "根节点 tree.zh 必须与输入「中文译文」逐字一致（标点也不能动），不要意译改写。请重输。";
+  }
   if (error.includes("tokens")) {
     return "你输出的 tokens 与原句不一致。tokens 数组必须与给定的 Tokens 列表逐项完全一致（单词、顺序、数量都不能改），range 直接使用给定下标";
   }
@@ -458,6 +476,12 @@ async function processOne(row) {
       const built = buildTree(row.english, parsed);
       if (built.error) {
         lastError = built.error;
+        continue;
+      }
+      // 硬规则：根节点 zh 必须与原译文一字不差（prompt 第三节.1）
+      const expectedZh = (row.chinese ?? "").trim();
+      if (expectedZh && built.tree.tree.zh !== expectedZh) {
+        lastError = `根节点 zh 与原译文不一致（原译文：${expectedZh.slice(0, 60)}）`;
         continue;
       }
       await saveTree(row.id, built.tree);
