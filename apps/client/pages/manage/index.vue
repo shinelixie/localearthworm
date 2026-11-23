@@ -1,5 +1,48 @@
 <template>
-  <div class="mx-auto flex w-full max-w-screen-2xl flex-col px-4 py-6">
+  <!-- 未解锁：PIN 门（纯前端版；本地后端版 canManage 恒真，直接进页面） -->
+  <div
+    v-if="!canManage"
+    class="flex min-h-screen flex-col items-center justify-center gap-4 px-4"
+  >
+    <div
+      class="w-full max-w-xs rounded-xl border border-gray-200 bg-white p-6 text-center dark:border-gray-700 dark:bg-gray-900"
+    >
+      <div class="text-2xl">🔒</div>
+      <h1 class="mt-2 text-lg font-semibold text-gray-800 dark:text-gray-100">课程管理</h1>
+      <p class="mt-1 text-xs text-gray-500">这是仅管理员可见的页面，请输入 PIN 解锁</p>
+      <form
+        class="mt-4 flex flex-col gap-2"
+        @submit.prevent="handleVerify"
+      >
+        <input
+          v-model="pinInput"
+          type="password"
+          inputmode="numeric"
+          autocomplete="off"
+          maxlength="6"
+          placeholder="PIN"
+          class="w-full rounded-lg border border-gray-300 px-3 py-2 text-center tracking-widest outline-none focus:border-purple-500 dark:border-gray-600 dark:bg-gray-800"
+        />
+        <button
+          type="submit"
+          class="btn btn-primary w-full"
+        >
+          解锁
+        </button>
+      </form>
+      <p
+        v-if="pinError"
+        class="mt-3 text-xs text-red-500"
+      >
+        {{ pinError }}
+      </p>
+    </div>
+  </div>
+
+  <div
+    v-else
+    class="mx-auto flex w-full max-w-screen-2xl flex-col px-4 py-6"
+  >
     <div class="mb-4 flex flex-wrap items-end justify-between gap-3">
       <div>
         <h1 class="text-3xl font-bold text-gray-800 dark:text-gray-100">课程管理</h1>
@@ -261,6 +304,20 @@ import {
 import { fetchCoursePack, fetchCoursePacks } from "~/api/course-pack";
 import GrammarEditor from "~/components/manage/GrammarEditor.vue";
 import SplitEditor from "~/components/manage/SplitEditor.vue";
+import { useManageAccess } from "~/composables/user/manageAccess";
+
+const { canManage, verify } = useManageAccess();
+const pinInput = ref("");
+const pinError = ref("");
+
+function handleVerify() {
+  if (verify(pinInput.value)) {
+    pinError.value = "";
+    pinInput.value = "";
+  } else {
+    pinError.value = "PIN 不正确，请重试";
+  }
+}
 
 const tabs = [
   { key: "content", label: "原文与翻译" },

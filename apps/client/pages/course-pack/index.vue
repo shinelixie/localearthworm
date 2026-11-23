@@ -5,6 +5,7 @@
       <h2 class="text-center text-3xl dark:border-gray-600">课程包列表</h2>
       <div class="flex items-center gap-2 justify-self-end">
         <NuxtLink
+          v-if="canManage"
           to="/manage"
           class="btn btn-ghost btn-sm"
         >
@@ -52,7 +53,10 @@ import CoursePackCard from "~/components/courses/CoursePackCard.vue";
 import CreateCoursePackDialog from "~/components/courses/CreateCoursePackDialog.vue";
 import ImportCoursePackDialog from "~/components/courses/ImportCoursePackDialog.vue";
 import { useNavigation } from "~/composables/useNavigation";
+import { useManageAccess } from "~/composables/user/manageAccess";
 import { useCoursePackStore } from "~/store/coursePack";
+
+const { canManage } = useManageAccess();
 
 const coursePackStore = useCoursePackStore();
 const { gotoCourseList } = useNavigation();

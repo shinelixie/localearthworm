@@ -63,61 +63,67 @@ import { navigateTo } from "#imports";
 import { computed } from "vue";
 
 import { Theme, useDarkMode } from "~/composables/darkMode";
+import { useManageAccess } from "~/composables/user/manageAccess";
 import { useUserMenu } from "~/composables/user/useUserMenu";
 import { webAsset } from "~/composables/web/webAsset";
 import { useUserStore } from "~/store/user";
 
 const { isUserMenuOpen, closeUserMenu } = useUserMenu();
+const { canManage } = useManageAccess();
 const { darkMode, toggleDarkMode } = useDarkMode();
 
 const userStore = useUserStore();
 const isDarkMode = computed(() => darkMode.value === Theme.DARK);
 
 const showMenuOptions = computed(() => {
-  return [
-    {
-      title: "设置",
-      name: "setting",
-      eventName: handleSetting,
-      icon: "i-ph-gear",
-    },
-    {
-      title: "收藏",
-      name: "favorites",
-      eventName: handleFavorites,
-      icon: "i-ph-star",
-    },
-    {
-      title: "复习",
-      name: "review",
-      eventName: handleReview,
-      icon: "i-ph-arrows-clockwise",
-    },
-    {
-      title: "成长分析",
-      name: "growthAnalytics",
-      eventName: handleGrowthAnalytics,
-      icon: "i-ph-chart-line-up",
-    },
-    {
-      title: "课程管理",
-      name: "manage",
-      eventName: handleManage,
-      icon: "i-ph-pencil-ruler",
-    },
-    {
-      title: "帮助文档",
-      name: "helpDocs",
-      eventName: handleHelpDocs,
-      icon: "i-ph-book-open-text-duotone",
-    },
-    {
-      title: "主题切换",
-      name: "changeTheme",
-      eventName: toggleDarkMode,
-      icon: isDarkMode.value ? "i-ph-moon" : "i-ph-sun",
-    },
-  ];
+  return (
+    [
+      {
+        title: "设置",
+        name: "setting",
+        eventName: handleSetting,
+        icon: "i-ph-gear",
+      },
+      {
+        title: "收藏",
+        name: "favorites",
+        eventName: handleFavorites,
+        icon: "i-ph-star",
+      },
+      {
+        title: "复习",
+        name: "review",
+        eventName: handleReview,
+        icon: "i-ph-arrows-clockwise",
+      },
+      {
+        title: "成长分析",
+        name: "growthAnalytics",
+        eventName: handleGrowthAnalytics,
+        icon: "i-ph-chart-line-up",
+      },
+      {
+        title: "课程管理",
+        name: "manage",
+        eventName: handleManage,
+        icon: "i-ph-pencil-ruler",
+      },
+      {
+        title: "帮助文档",
+        name: "helpDocs",
+        eventName: handleHelpDocs,
+        icon: "i-ph-book-open-text-duotone",
+      },
+      {
+        title: "主题切换",
+        name: "changeTheme",
+        eventName: toggleDarkMode,
+        icon: isDarkMode.value ? "i-ph-moon" : "i-ph-sun",
+      },
+    ]
+      // 课程管理仅管理员可见（纯前端版未解锁时不显示入口）
+      .filter((item) => item.name !== "manage" || canManage.value)
+  );
 });
 
 function handleHelpDocs() {
