@@ -176,7 +176,12 @@ const thesis = computed(() => courseStore.currentStatement?.chinese || "");
 const thesisLength = computed(() => thesis.value.length);
 
 // ---------- 按语法成分框选当前题目的单词 ----------
-const normalizeWord = (text: string) => text.toLowerCase().replace(/[^a-z0-9']/g, "");
+/**
+ * 字母数字片段粒度：按任意非字母数字字符（空格/连字符/撇号）切开。
+ * 语法标注里偶有多词词条（如 "Foreign Office"）或连字符词，
+ * 与显示卡片必须用同一套粒度，否则对不上。
+ */
+const wordAtoms = (text: string) => text.toLowerCase().match(/[a-z0-9]+/g) ?? [];
 
 const grammarGroups = computed<{ role: string; segmentIndex: number; cards: WordCard[] }[]>(() => {
   const statement = courseStore.currentStatement;
@@ -189,16 +194,17 @@ const grammarGroups = computed<{ role: string; segmentIndex: number; cards: Word
   const analysisWords: { segmentIndex: number; role: string; norm: string }[] = [];
   segments.forEach((segment, segmentIndex) => {
     (segment.words ?? []).forEach((word) => {
-      // 连字符/破折号词组按字母数字片段拆开，与显示卡片用同一套粒度
-      const parts = normalizeWord(word.text).match(/[a-z0-9]+/g) ?? [];
-      parts.forEach((norm) => analysisWords.push({ segmentIndex, role: segment.role, norm }));
+      // 多词词条（Foreign Office）/连字符词按字母数字片段拆开，与显示卡片同粒度
+      wordAtoms(word.text).forEach((norm) =>
+        analysisWords.push({ segmentIndex, role: segment.role, norm }),
+      );
     });
   });
   if (!analysisWords.length) return [];
 
   // 一个显示卡片可能被语法标注拆成多个词（如 unique—a → unique / a），
   // 因此按“字母数字片段”展平后再对齐，卡片仍作为整体显示。
-  const cardSegments = cardsList.map((card) => normalizeWord(card.text).match(/[a-z0-9]+/g) ?? []);
+  const cardSegments = cardsList.map((card) => wordAtoms(card.text));
   const target = cardSegments.flat();
   if (!target.length) return [];
 
