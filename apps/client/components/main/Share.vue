@@ -67,12 +67,14 @@ import { courseTimer } from "~/composables/courses/courseTimer";
 import { useGenerateShareImage, useShareModal } from "~/composables/main/shareImage/share";
 import { useCourseStore } from "~/store/course";
 import { useCoursePackStore } from "~/store/coursePack";
+import { useGameStore } from "~/store/game";
 import { useUserStore } from "~/store/user";
 import { formatSecondsToTime, getToday } from "~/utils/date";
 
 const coursePackStore = useCoursePackStore();
 const courseStore = useCourseStore();
 const userStore = useUserStore();
+const gameStore = useGameStore();
 const imageContainer = ref<HTMLDivElement>();
 
 const { shareModalVisible, hideShareModal } = useShareModal();
@@ -92,7 +94,8 @@ watch(shareModalVisible, (newVal) => {
     const { year, month, day } = getToday();
     const coursePackTitle = coursePackStore.currentCoursePack?.title || "";
     const totalRecordNumber = courseTimer.totalRecordNumber();
-    const totalTime = formatSecondsToTime(courseTimer.calculateTotalTime());
+    // 墙钟会话时长，和成长分析/主页同一口径
+    const totalTime = formatSecondsToTime(Math.round(gameStore.sessionSecondsMs() / 1000));
     generateGalleryImage(
       coursePackTitle,
       courseStore.currentCourse.title,

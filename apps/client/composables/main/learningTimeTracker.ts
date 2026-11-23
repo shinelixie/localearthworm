@@ -8,6 +8,9 @@ const lastTotalSeconds = ref(0);
 const isTracking = ref(false);
 let timer: NodeJS.Timeout | null = null;
 
+/** 当日墙钟累计（秒）。练习会话用它算「本次会话的墙钟时长」。 */
+const todayTotalSeconds = ref(0);
+
 export function useLearningTimeTracker() {
   const userStore = useUserStore();
   const userId = userStore.user?.id || "";
@@ -24,6 +27,7 @@ export function useLearningTimeTracker() {
   function loadTime() {
     const savedTime = localStorage.getItem(getStorageKey());
     totalSeconds.value = savedTime ? parseInt(savedTime) : 0;
+    todayTotalSeconds.value = totalSeconds.value;
   }
 
   function saveTime() {
@@ -51,6 +55,7 @@ export function useLearningTimeTracker() {
     lastTotalSeconds.value = totalSeconds.value;
     timer = setInterval(() => {
       totalSeconds.value++;
+      todayTotalSeconds.value = totalSeconds.value;
       if (totalSeconds.value % 30 === 0) {
         saveTime();
         lastTotalSeconds.value = totalSeconds.value;
@@ -70,6 +75,7 @@ export function useLearningTimeTracker() {
 
   return {
     totalSeconds,
+    todayTotalSeconds,
     isTracking,
     startTracking,
     stopTracking,

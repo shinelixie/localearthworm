@@ -123,11 +123,13 @@
 import { computed, ref } from "vue";
 
 import type { DailyPoint, SessionOverview, SessionRecord } from "~/types/models/practice-session";
+import type { UserLearningDailyTime } from "~/types/models/user-learning-activity";
 import {
   fetchDailyLearning,
   fetchRecentSessions,
   fetchSessionOverview,
 } from "~/api/practice-session";
+import { fetchAllLearningTime } from "~/api/user-learning-activity";
 import { isAuthenticated } from "~/services/auth";
 
 const MODE_LABELS: Record<string, string> = {
@@ -147,16 +149,60 @@ const overview = ref<SessionOverview>({
   avgCorrectRate: 0,
   longestStreak: 0,
 });
-const daily = ref<DailyPoint[]>([]);
 const sessions = ref<SessionRecord[]>([]);
+/** 每日墙钟学习时长（主页打卡图/顶栏时钟同一口径，秒） */
+const wallDays = ref<UserLearningDailyTime[]>([]);
+/** 每日练习会话数（只取 sessions 计数，时长以墙钟为准） */
+const sessDays = ref<DailyPoint[]>([]);
+
+const daily = computed<DailyPoint[]>(() => {
+  // 完整 30 天窗口（含 0 值），柱高 = 当天墙钟时长
+  const sessByDate = new Map(sessDays.value.map((p) => [p.date, p.sessions]));
+  const points: DailyPoint[] = [];
+  for (let i = 29; i >= 0; i--) {
+    const date = new Date(Date.now() - i * 86400000).toISOString().slice(0, 10);
+    const seconds = wallSecondsByDate.value.get(date) ?? 0;
+    points.push({ date, durationMs: seconds * 1000, sessions: sessByDate.get(date) ?? 0 });
+  }
+  return points;
+});
+
+const wallSecondsByDate = computed(() => {
+  const map = new Map<string, number>();
+  for (const d of wallDays.value) map.set(d.date, d.duration);
+  return map;
+});
+
+/** 学习天数 / 连续：有墙钟记录的天 */
+const activeDates = computed(() =>
+  [...wallSecondsByDate.value.entries()].filter(([, s]) => s > 0).map(([date]) => date),
+);
+
+const totalWallMs = computed(() => wallDays.value.reduce((sum, d) => sum + d.duration * 1000, 0));
+
+const learningDayCount = computed(() => activeDates.value.length);
+
+const longestStreak = computed(() => {
+  const sorted = [...activeDates.value].sort();
+  if (sorted.length === 0) return 0;
+  let best = 1;
+  let run = 1;
+  for (let i = 1; i < sorted.length; i++) {
+    const diffDays =
+      (Date.parse(`${sorted[i]}T00:00:00Z`) - Date.parse(`${sorted[i - 1]}T00:00:00Z`)) / 86400000;
+    run = diffDays === 1 ? run + 1 : 1;
+    best = Math.max(best, run);
+  }
+  return best;
+});
 
 const maxDuration = computed(() => Math.max(...daily.value.map((point) => point.durationMs), 1));
 
 const overviewCards = computed(() => [
-  { label: "累计时长", value: formatMinutes(overview.value.totalDurationMs) },
+  { label: "累计时长", value: formatMinutes(totalWallMs.value) },
   { label: "练习次数", value: String(overview.value.sessions) },
-  { label: "学习天数", value: String(overview.value.learningDays) },
-  { label: "最长连续", value: `${overview.value.longestStreak} 天` },
+  { label: "学习天数", value: String(learningDayCount.value) },
+  { label: "最长连续", value: `${longestStreak.value} 天` },
 ]);
 
 function barHeight(durationMs: number) {
@@ -184,13 +230,16 @@ async function setup() {
   }
   isLoading.value = true;
   try {
-    const [nextOverview, nextDaily, nextSessions] = await Promise.all([
+    const [nextOverview, nextWall, nextSessDaily, nextSessions] = await Promise.all([
       fetchSessionOverview(),
+      // 墙钟时长是「时长」的唯一口径：主页打卡图/顶栏时钟读的就是它
+      fetchAllLearningTime(),
       fetchDailyLearning(30),
       fetchRecentSessions(10),
     ]);
     overview.value = nextOverview;
-    daily.value = nextDaily;
+    wallDays.value = nextWall;
+    sessDays.value = nextSessDaily;
     sessions.value = nextSessions;
   } finally {
     isLoading.value = false;

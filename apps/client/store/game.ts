@@ -12,13 +12,17 @@ enum GameStatus {
 }
 
 export const useGameStore = defineStore("game", () => {
-  const { startTracking, stopTracking } = useLearningTimeTracker();
+  const { startTracking, stopTracking, todayTotalSeconds } = useLearningTimeTracker();
   const gameStatus = ref<GameStatus>(GameStatus.NOT_PLAYED);
+
+  /** 本次练习会话的墙钟时长（秒）。成长分析的会话/评级用它，和主页同一口径 */
+  const sessionSeconds = ref(0);
 
   function startGame() {
     gameStatus.value = GameStatus.STARTED;
     if (isAuthenticated()) {
       startTracking();
+      sessionSeconds.value = todayTotalSeconds.value;
     }
   }
 
@@ -80,8 +84,15 @@ export const useGameStore = defineStore("game", () => {
     return gameStatus.value === GameStatus.LEVEL_COMPLETED;
   }
 
+  /** 会话墙钟时长（毫秒）：开玩时快照到现在的当日累计差值 */
+  function sessionSecondsMs() {
+    return Math.max(todayTotalSeconds.value - sessionSeconds.value, 0) * 1000;
+  }
+
   return {
     gameStatus,
+    sessionSeconds,
+    sessionSecondsMs,
     startGame,
     pauseGame,
     resumeGame,

@@ -45,7 +45,7 @@
         >
           {{
             `恭喜您一共完成 ${courseTimer.totalRecordNumber()} 道题，用时 ${formatSecondsToTime(
-              courseTimer.calculateTotalTime(),
+              Math.round(gameStore.sessionSecondsMs() / 1000),
             )} `
           }}
         </p>
@@ -213,7 +213,9 @@ const RANK_THRESHOLDS: Record<string, { S: number; A: number; B: number }> = {
 
 function computeRank() {
   const total = courseTimer.totalRecordNumber() || 1;
-  const secondsPerQuestion = courseTimer.calculateTotalTime() / total;
+  // 评级口径与主页一致：按会话墙钟时长算每题平均用时
+  // （原来只累加「每题答题用时」，不含读题/思考/间隙，比主页计时小得多）
+  const secondsPerQuestion = gameStore.sessionSecondsMs() / 1000 / total;
   const threshold =
     RANK_THRESHOLDS[learningPathStore.currentDifficulty] ?? RANK_THRESHOLDS.beginner;
   // 本地 sessionStats 的 accuracy 是 0-100 的整数
@@ -280,7 +282,8 @@ async function reportSession() {
       mode: learningPathStore.currentMode,
       splitMode: currentSplitMode,
       presetKey: learningPathStore.currentDifficulty,
-      durationMs: courseTimer.calculateTotalTime() * 1000,
+      // 会话墙钟时长（开玩→结算），和主页/打卡图同一口径
+      durationMs: gameStore.sessionSecondsMs(),
       exerciseCount: answerCount,
       answerCount,
       correctCount,
