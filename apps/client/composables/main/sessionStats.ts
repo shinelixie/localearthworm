@@ -4,6 +4,7 @@ import { computed, ref } from "vue";
 // 只统计真正提交过的题（自动判分），跳过的题不计入。
 const correctCount = ref(0);
 const wrongCount = ref(0);
+const showAnswerCount = ref(0);
 
 export function useSessionStats() {
   const answeredCount = computed(() => correctCount.value + wrongCount.value);
@@ -21,18 +22,26 @@ export function useSessionStats() {
     wrongCount.value += 1;
   }
 
+  /** 记录一次「显示答案」（手动点击/快捷键触发查看提示） */
+  function recordShowAnswer() {
+    showAnswerCount.value += 1;
+  }
+
   function reset() {
     correctCount.value = 0;
     wrongCount.value = 0;
+    showAnswerCount.value = 0;
   }
 
   return {
     correctCount,
     wrongCount,
+    showAnswerCount,
     answeredCount,
     accuracy,
     recordCorrect,
     recordWrong,
+    recordShowAnswer,
     reset,
   };
 }

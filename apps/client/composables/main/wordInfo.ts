@@ -13,14 +13,32 @@ export interface WordInfo {
 }
 
 export interface WordCard {
-  /** 展示用原词（保留大小写和标点） */
+  /** 展示用核心词（去掉了首尾标点，保留大小写） */
   text: string;
+  /** 原词首部的标点（如引号），与 text 拼起来是原 token */
+  punctBefore: string;
+  /** 原词尾部的标点（逗号/句号等），原句位置显示在词的旁边 */
+  punctAfter: string;
   /** 归一化后的词，用于查词 */
   clean: string;
   /** 带斜杠的音标 */
   phonetic: string;
   pos: string;
   translation: string;
+}
+
+/**
+ * 拆出 token 的首尾标点（撇号保留，don't 仍是一个词）。
+ * 答题区横线和答案屏词卡都按这个结果，把原句标点显示在词的旁边。
+ */
+export function edgePunct(word: string) {
+  const core = word.replace(/^[^A-Za-z0-9']+|[^A-Za-z0-9']+$/g, "");
+  if (!core) {
+    // 纯符号 token（&、Ⅱ 等）：整体原样保留，标点字段留空
+    return { core: word, before: "", after: "" };
+  }
+  const index = word.indexOf(core);
+  return { core, before: word.slice(0, index), after: word.slice(index + core.length) };
 }
 
 type WordInfoTuple = [pos: string, translation: string, phonetic: string];
@@ -148,8 +166,11 @@ export function buildWordCards(
     const fromAnalysis = annotated.get(normalizeWord(word));
     const fromSentence = phonetics[index] || "";
     const fromDict = info?.phonetic ? `/${info.phonetic}/` : "";
+    const { core, before, after } = edgePunct(word);
     return {
-      text: word.replace(/^[^A-Za-z0-9']+|[^A-Za-z0-9']+$/g, "") || word,
+      text: core,
+      punctBefore: before,
+      punctAfter: after,
       clean: word.toLowerCase().replace(/[^a-z']/g, ""),
       phonetic: fromAnalysis?.phonetic || fromSentence || fromDict,
       pos: fromAnalysis?.pos || info?.pos || "",

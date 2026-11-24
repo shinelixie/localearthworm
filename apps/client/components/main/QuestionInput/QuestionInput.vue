@@ -12,6 +12,13 @@
         v-for="(w, i) in courseStore.words"
         :key="i"
       >
+        <!-- 原句词首标点：按原位置显示在横线旁，不再隐藏 -->
+        <span
+          v-if="edgePunct(w).before"
+          class="cell-punct"
+        >
+          {{ edgePunct(w).before }}
+        </span>
         <div
           v-if="isWord(w)"
           class="word-cell h-[4rem] rounded-[2px] border-b-2 border-solid text-[3em] leading-none transition-all"
@@ -25,6 +32,12 @@
             >
           </template>
           <template v-else>{{ wordInput(i) }}</template>
+          <!-- 原句词尾标点：显示在词的右侧横线上，不再隐藏 -->
+          <span
+            v-if="edgePunct(w).after"
+            class="cell-punct"
+            >{{ edgePunct(w).after }}</span
+          >
           <span
             v-if="showPhonetic"
             class="cell-phonetic"
@@ -128,8 +141,9 @@ import { toast } from "vue-sonner";
 import { courseTimer } from "~/composables/courses/courseTimer";
 import { useAnswerTip } from "~/composables/main/answerTip";
 import { useCurrentStatementEnglishSound } from "~/composables/main/englishSound";
+import { usePhoneticTip } from "~/composables/main/phoneticTip";
 import { isWord } from "~/composables/main/question";
-import { buildWordCards, useWordInfo } from "~/composables/main/wordInfo";
+import { buildWordCards, edgePunct, useWordInfo } from "~/composables/main/wordInfo";
 import { useGamePlayMode } from "~/composables/user/gamePlayMode";
 import { useShowWordsWidth } from "~/composables/user/words";
 import { useCourseStore } from "~/store/course";
@@ -171,9 +185,9 @@ const { resetCloseTip } = useAnswerError();
 initializeQuestionInput();
 focusInputWhenWIndowFocus();
 
-// ---------- 音标提示 ----------
+// ---------- 音标提示（共享状态，底部快捷键栏「1 音标提示」也能联动开关） ----------
 const { playSound } = useCurrentStatementEnglishSound();
-const showPhonetic = ref(false);
+const { showPhonetic, toggle: togglePhonetic } = usePhoneticTip();
 const { isReady: isWordInfoReady, load: loadWordInfo, lookup: lookupWord } = useWordInfo();
 
 /** 逐词音标，顺序与输入框中的词一一对应 */
@@ -185,10 +199,6 @@ const phonetics = computed(() => {
     (card) => card.phonetic,
   );
 });
-
-function togglePhonetic() {
-  showPhonetic.value = !showPhonetic.value;
-}
 
 function handleTogglePhonetic(e?: MouseEvent) {
   e?.preventDefault();
@@ -439,6 +449,14 @@ function preventCursorMove(event: MouseEvent) {
 
 .word-cell {
   position: relative;
+}
+
+/* 原句标点：按原位置显示在词旁，字号跟词一致，颜色与词相同 */
+.cell-punct {
+  display: inline-block;
+  font-size: 3em;
+  line-height: 1;
+  color: #6d879b;
 }
 
 /* 词块内的可见光标：方向键移动后能看出当前位置 */

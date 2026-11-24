@@ -25,9 +25,12 @@ import { computed, onMounted, onUnmounted } from "vue";
 import { useAnswerTip } from "~/composables/main/answerTip";
 import { useCurrentStatementEnglishSound } from "~/composables/main/englishSound";
 import { useGameMode } from "~/composables/main/game";
+import { usePhoneticTip } from "~/composables/main/phoneticTip";
 import { useSummary } from "~/composables/main/summary";
 import { useMastered } from "~/composables/main/useMastered";
+import { useGamePlayMode } from "~/composables/user/gamePlayMode";
 import { useShortcutKeyMode } from "~/composables/user/shortcutKey";
+import { useLearningPathStore } from "~/store/learningPath";
 import { cancelShortcut, parseShortcutKeys, registerShortcut } from "~/utils/keyboardShortcuts";
 import { useAnswer } from "./QuestionInput/useAnswer";
 import { useWrapperQuestionInput } from "./QuestionInput/useWrapperQuestionInput";
@@ -35,6 +38,9 @@ import { useWrapperQuestionInput } from "./QuestionInput/useWrapperQuestionInput
 const { toggleAnswerTip, isAnswerTip } = useAnswerTip();
 const { shortcutKeys } = useShortcutKeyMode();
 const { playSound } = usePlaySound(shortcutKeys.value.sound);
+const { showPhonetic, toggle: togglePhonetic } = usePhoneticTip();
+const { isChineseToEnglishMode } = useGamePlayMode();
+const learningPathStore = useLearningPathStore();
 const { goToNextQuestion } = useAnswer();
 const { showQuestion, isQuestion } = useGameMode();
 const { submitAnswer } = useWrapperQuestionInput();
@@ -42,7 +48,31 @@ const { handleMastered } = useMasteredShortcut();
 useShowAnswer(shortcutKeys.value.answer);
 
 const keybindings = computed(() => {
+  // 高阶难度不给提示（答题区的 1/2 快捷键同样被屏蔽），列表里也不显示
+  const advancedNoHelp =
+    isChineseToEnglishMode() && learningPathStore.currentDifficulty === "advanced";
+
+  const helpItems = advancedNoHelp
+    ? []
+    : [
+        {
+          keys: "1",
+          text: showPhonetic.value ? "隐藏音标" : "音标提示",
+          eventFn: () => {
+            togglePhonetic();
+          },
+        },
+        {
+          keys: "2",
+          text: "朗读发音",
+          eventFn: () => {
+            playSound();
+          },
+        },
+      ];
+
   const questionItems = [
+    ...helpItems,
     {
       keys: "Enter",
       text: "提交",

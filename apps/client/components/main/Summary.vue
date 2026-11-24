@@ -71,6 +71,12 @@
           </span>
           <span class="ml-2 text-gray-400"> 正确率 {{ accuracy }}% </span>
         </div>
+        <p
+          v-if="showAnswerCount > 0"
+          class="mt-1 pl-2 text-xs leading-loose text-gray-400 sm:pl-4 sm:text-sm lg:pl-14 lg:text-base"
+        >
+          本次练习查看答案 <span class="text-purple-500">{{ showAnswerCount }}</span> 次
+        </p>
       </div>
       <div className="modal-action flex flex-col sm:flex-row gap-2 justify-center sm:justify-end">
         <button
@@ -173,7 +179,7 @@ const modal = useModal();
 const isSplitSession = computed(() => splitSession.value.enabled);
 
 const learningPathStore = useLearningPathStore();
-const { accuracy } = useSessionStats();
+const { accuracy, showAnswerCount } = useSessionStats();
 
 /** 学习路线的下一个节点：当前练习结束后，按「拆分方式 × 难度」顺序继续 */
 const nextRouteNode = computed(() => {

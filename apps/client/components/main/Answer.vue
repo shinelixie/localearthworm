@@ -68,7 +68,11 @@
             @click="handlePlayWordSound(card.text)"
           >
             <div class="word-phonetic">{{ card.phonetic || " " }}</div>
-            <div class="word-en">{{ card.text }}</div>
+            <div class="word-en">
+              <template v-if="card.punctBefore">{{ card.punctBefore }}</template>
+              {{ card.text }}
+              <template v-if="card.punctAfter">{{ card.punctAfter }}</template>
+            </div>
             <div
               class="word-rule"
               :style="{ backgroundColor: posColor(card.pos) }"
