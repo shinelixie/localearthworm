@@ -42,6 +42,21 @@
 | 界面     | 首页/课程列表/学习页/设置页重做，支持深色模式、手机端；新增收藏本、站内帮助              |
 | 数据     | 内置 55 课 / 8865 句的《新概念》语料，导入后按句去重建库                                 |
 
+## 持续开发的新功能（v0.1 之后）
+
+| 功能           | 说明                                                                                                                    |
+| -------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| 拆分练习       | 按词/短语/自顶向下等拆分方式把句子切成空位逐段默写，支持中译英/听写/听力三种模式与多级难度，可断点续练、会话评级（S–D） |
+| 语法分析       | 每句的逐词成分标注（离线 LLM 批量生成），卡片里按成分框选高亮，管理页可可视化编辑                                       |
+| 拆分树         | LLM 生成的嵌套句法树（本地校验：连续、不重叠、不漏词），是拆分练习的切分依据，可逐句重生成                              |
+| 学习路径       | 每个课程包一棵「模式 × 难度 × 星级」的解锁树，含每日题量限制与进度星                                                    |
+| 复习（FSRS）   | 根据练习行为信号（尝试次数/提示/拼错/听音次数）自动排期的记忆卡片，毕业制（≥21 天）                                     |
+| 成长分析       | 近 30 天柱状图、累计时长（墙钟口径）、练习次数、正确率与会话明细                                                        |
+| 课程管理       | `/manage` 页：编辑句子原文/翻译/音标、可视化编辑语法与拆分树，并实时预览四种拆分练习的出题效果                          |
+| 四六级语料     | CET4/CET6 重排为「一句一节课」（CET4 201 节 / CET6 397 节），迁移脚本自动改写旧表引用                                   |
+| 翻译与音频落库 | 练习中产生的片段翻译走「本地 LLM → Google → MyMemory」三级链并持久缓存；TTS 音频同时存磁盘与数据库，换机不用重新合成    |
+| 纯前端版       | 无服务器/无数据库的 GitHub Pages 版，见下节                                                                             |
+
 ## 快速开始（Windows）
 
 前提：**Node.js ≥ 20**、**pnpm ≥ 8**。
@@ -116,7 +131,17 @@ curl -X POST http://localhost:3101/tts/cache/purge      # 清缓存
 [https://shinelixie.github.io/localearthworm-web/](https://shinelixie.github.io/localearthworm-web/)
 
 站点发布在独立仓库 [`shinelixie/localearthworm-web`](https://github.com/shinelixie/localearthworm-web)
-（GitHub 不支持在 fork 仓库上启用 Pages，所以单独建了个非 fork 仓库，内容和本仓库相同）。
+（GitHub 不支持在 fork 仓库上启用 Pages，所以单独建了个非 fork 仓库）。
+
+**两个仓库的分工**：
+
+| 仓库                                  | 角色              | 内容                                                                                                      |
+| ------------------------------------- | ----------------- | --------------------------------------------------------------------------------------------------------- |
+| `shinelixie/localearthworm`（本仓库） | 开发主仓库        | 全部代码 + 数据库工具链，本地版功能开发都在这里                                                           |
+| `shinelixie/localearthworm-web`       | 纯 Pages 站点仓库 | 只有 `apps/client` + 课程内容 `courses.json` + 部署 workflow，不含 API / DB / 工具，改动即触发 Pages 构建 |
+
+纯前端版的代码改动仍在本仓库开发，完成后同步到站点仓库（`git push` 同一个 commit）
+发布；站点仓库不单独开发。
 
 - **课程内容**随站点发布（`apps/client/public/data/courses.json`，由 `pnpm web-data`
   从本机库导出并提交进仓库）
@@ -130,7 +155,8 @@ curl -X POST http://localhost:3101/tts/cache/purge      # 清缓存
 ```bash
 pnpm web-data                    # 从本机 Postgres 重新导出 courses.json
 git commit -am "chore(web): 更新课程内容数据"
-git push                          # push 到 main 后 GitHub Actions 自动构建部署
+git push github main             # 本仓库
+git push webrepo main            # 站点仓库；其 GitHub Actions 自动构建并部署 Pages
 ```
 
 本地构建验证：`pnpm build:web`（产物在 `apps/client/.output/public`，
