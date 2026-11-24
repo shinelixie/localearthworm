@@ -2,7 +2,7 @@ import "fake-indexeddb/auto";
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { idbDel, idbDelByPrefix } from "../idb";
+import { idbDel, idbDelByPrefix, idbGet, idbSet } from "../idb";
 import { route } from "../webBackend";
 
 /**
@@ -215,6 +215,104 @@ describe("webBackend.route", () => {
       },
     });
     expect(read.data.statementIndex).toBe(3);
+  });
+
+  it("学习时长 30 秒增量按天累加（不覆盖），总时长 = 各增量之和", async () => {
+    const day = "2026-11-24";
+    // 连续上传三段 30 秒增量，和 API 版一样累加
+    await call("POST", "/user-learning-activities", {
+      body: { date: day, duration: 30, activityType: "daily_total" },
+    });
+    await call("POST", "/user-learning-activities", {
+      body: { date: day, duration: 30, activityType: "daily_total" },
+    });
+    await call("POST", "/user-learning-activities", {
+      body: { date: day, duration: 30, activityType: "daily_total" },
+    });
+    const total = await call("GET", "/user-learning-activities/total");
+    expect(total.data).toBe(90); // 不是 30（覆盖 bug）
+
+    const list = await call("GET", "/user-learning-activities", {
+      query: { activityType: "daily_total" },
+    });
+    expect(list.data).toEqual([{ date: day, duration: 90 }]);
+  });
+
+  it("每日时长增量跨天后各自累计，互不串天", async () => {
+    await call("POST", "/user-learning-activities", {
+      body: { date: "2026-11-22", duration: 45, activityType: "daily_total" },
+    });
+    await call("POST", "/user-learning-activities", {
+      body: { date: "2026-11-22", duration: 15, activityType: "daily_total" },
+    });
+    await call("POST", "/user-learning-activities", {
+      body: { date: "2026-11-23", duration: 20, activityType: "daily_total" },
+    });
+    const total = await call("GET", "/user-learning-activities/total");
+    expect(total.data).toBe(80);
+  });
+
+  it("一次性修复：用 localStorage 真实值修回被覆盖的历史时长行（只增不回退，幂等）", async () => {
+    // 旧 bug 覆盖场景：IndexedDB 里 2026-11-01 只剩最后一段 29s，localStorage 里真实是 540s
+    vi.resetModules();
+    localStorage.clear();
+    const { route } = await import("../webBackend");
+    await idbSet("learning-time:2026-11-01", { date: "2026-11-01", duration: 29 });
+    // 已被正确累加、大于 localStorage 值的天：不能被回退（只增不减）
+    await idbSet("learning-time:2026-11-02", { date: "2026-11-02", duration: 1000 });
+    localStorage.setItem("learningTime_local-user_2026-11-01", "540");
+    localStorage.setItem("learningTime_local-user_2026-11-02", "50");
+
+    const readTotal = async () =>
+      (
+        await route(
+          new URL("http://localhost/user-learning-activities?activityType=daily_total"),
+          "GET",
+          {},
+        )
+      ).json();
+    await readTotal(); // 触发一次性修复
+    expect(await idbGet("learning-time:2026-11-01")).toEqual({ date: "2026-11-01", duration: 540 });
+    expect(await idbGet("learning-time:2026-11-02")).toEqual({
+      date: "2026-11-02",
+      duration: 1000,
+    });
+
+    // 再读一次：幂等，不变
+    await readTotal();
+    expect(await idbGet("learning-time:2026-11-01")).toEqual({ date: "2026-11-01", duration: 540 });
+    expect(await idbGet("learning-time:2026-11-02")).toEqual({
+      date: "2026-11-02",
+      duration: 1000,
+    });
+  });
+
+  it("analytics/daily 时长取墙钟、次数取会话（两源日期并集）", async () => {
+    // 会话的 completedAt 是「现在」，墙钟日期必须同为今天才能落到同一天
+    const day = new Date().toISOString().slice(0, 10);
+    // 一次会话（只贡献次数）
+    await call("POST", "/practice-session/record", {
+      body: {
+        coursePackId: "pack-1",
+        courseId: "course-1",
+        mode: "chinese_to_english",
+        answerCount: 3,
+        correctCount: 3,
+        startedAt: `${day}T08:00:00.000Z`,
+        durationMs: 15000,
+      },
+    });
+    // 当天墙钟增量（贡献时长）
+    await call("POST", "/user-learning-activities", {
+      body: { date: day, duration: 120, activityType: "daily_total" },
+    });
+    const daily = await call("GET", "/practice-session/analytics/daily", {
+      query: { days: 30 },
+    });
+    const point = daily.data.find((p: any) => p.date === day);
+    expect(point).toBeDefined();
+    expect(point.sessions).toBe(1);
+    expect(point.durationMs).toBe(120000); // 墙钟 120s，不是会话 durationMs 15s
   });
 
   it("TTS 路径 404（前端走有道/浏览器兜底）", async () => {

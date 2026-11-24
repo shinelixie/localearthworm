@@ -93,6 +93,43 @@ function todayStr(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
+// ---------- 学习时长：一次性历史数据修复 ----------
+// 旧版按天「覆盖」而非「累加」上传的 30 秒增量，导致每天只剩最后一段（往往 <30s，
+// 四舍五入成「0 分钟」却仍画出一根 3px 细柱——即用户看到的「有柱子但时长为 0」）。
+// 每天的「真实」墙钟累计其实一直存在 localStorage（tracker 每秒累加、每 30s 落盘到
+// learningTime_*_{date}，且旧日期不清理）。这里首次读取时长时，用 localStorage 的
+// 真实值把 IndexedDB 里被覆盖偏小的历史行修回真实值：只增不减、幂等、只跑一次。
+let timeHealing: Promise<void> | null = null;
+function healLearningTime(): Promise<void> {
+  if (!timeHealing) {
+    timeHealing = doHealLearningTime();
+    timeHealing.catch(() => {
+      timeHealing = null; // 出错则下次可重试
+    });
+  }
+  return timeHealing;
+}
+async function doHealLearningTime(): Promise<void> {
+  if (typeof localStorage === "undefined") return;
+  if (localStorage.getItem("learningTime_backfilled_v1") === "1") return;
+  // key 形如 learningTime_{userId}_{YYYY-MM-DD}（本地版 userId 为空，但日期恒为后缀）
+  const re = /^learningTime_.*_(\d{4}-\d{2}-\d{2})$/;
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (!key) continue;
+    const match = re.exec(key);
+    if (!match) continue;
+    const date = match[1];
+    const stored = Number(localStorage.getItem(key));
+    if (!Number.isFinite(stored) || stored <= 0) continue;
+    const row = await idbGet<{ date: string; duration: number }>(`learning-time:${date}`);
+    if (!row || (row.duration ?? 0) < stored) {
+      await idbSet(`learning-time:${date}`, { date, duration: stored });
+    }
+  }
+  localStorage.setItem("learningTime_backfilled_v1", "1");
+}
+
 // ---------- 主路由 ----------
 
 /**
@@ -559,6 +596,7 @@ export async function route(
   // ===== 学习时长 / 练习会话（存 IndexedDB，成长分析可用） =====
   if (path === "user-learning-activities") {
     if (m === "GET") {
+      await healLearningTime(); // 一次性：用 localStorage 真实值修回被覆盖的历史行
       const rows = await idbAllByPrefix<{ date: string; duration: number }>("learning-time:");
       const start = query.get("startDate");
       const end = query.get("endDate");
@@ -572,11 +610,15 @@ export async function route(
     }
     if (m === "POST") {
       const date = body.date ?? todayStr();
-      await idbSet(`learning-time:${date}`, { date, duration: Number(body.duration ?? 0) });
+      // 与 API 版对齐：上传的是 30 秒增量，按天累加（不能覆盖，否则每天只剩最后一段）
+      const existing = await idbGet<{ date: string; duration: number }>(`learning-time:${date}`);
+      const total = (existing?.duration ?? 0) + Number(body.duration ?? 0);
+      await idbSet(`learning-time:${date}`, { date, duration: total });
       return json(true);
     }
   }
   if (path === "user-learning-activities/total" && m === "GET") {
+    await healLearningTime();
     const rows = await idbAllByPrefix<{ date: string; duration: number }>("learning-time:");
     return json(rows.reduce((sum, r) => sum + (r.value.duration ?? 0), 0));
   }
@@ -614,14 +656,24 @@ export async function route(
     });
   }
   if (path === "practice-session/analytics/daily" && m === "GET") {
+    // 时长以墙钟（learning-time 每日累计）为准——和「累计时长」卡同一口径；
+    // 会话表只取次数。两者日期并集，避免有练习但墙钟为 0 的天漏掉柱子。
+    await healLearningTime();
     const rows = await idbAllByPrefix<SessionLike>("session:");
+    const wallRows = await idbAllByPrefix<{ date: string; duration: number }>("learning-time:");
     const byDate = new Map<string, { durationMs: number; sessions: number }>();
     for (const r of rows) {
       const date = (r.value.completedAt ?? "").slice(0, 10);
       if (!date) continue;
       const cur = byDate.get(date) ?? { durationMs: 0, sessions: 0 };
-      cur.durationMs += r.value.durationMs ?? 0;
       cur.sessions += 1;
+      byDate.set(date, cur);
+    }
+    for (const r of wallRows) {
+      const date = r.value?.date ?? "";
+      if (!date) continue;
+      const cur = byDate.get(date) ?? { durationMs: 0, sessions: 0 };
+      cur.durationMs += (r.value?.duration ?? 0) * 1000;
       byDate.set(date, cur);
     }
     const days = Number(query.get("days") ?? 30);

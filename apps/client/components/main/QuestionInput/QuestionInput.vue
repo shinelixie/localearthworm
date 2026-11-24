@@ -32,12 +32,6 @@
             >
           </template>
           <template v-else>{{ wordInput(i) }}</template>
-          <!-- 原句词尾标点：显示在词的右侧横线上，不再隐藏 -->
-          <span
-            v-if="edgePunct(w).after"
-            class="cell-punct"
-            >{{ edgePunct(w).after }}</span
-          >
           <span
             v-if="showPhonetic"
             class="cell-phonetic"
@@ -50,6 +44,13 @@
         >
           {{ w }}
         </div>
+        <!-- 原句词尾标点：显示在词格右侧（格外，字号按面板基准 1.2em，不跟词格 3em 叠加） -->
+        <span
+          v-if="isWord(w) && edgePunct(w).after"
+          class="cell-punct"
+        >
+          {{ edgePunct(w).after }}
+        </span>
       </template>
       <input
         lang="en"
@@ -451,10 +452,10 @@ function preventCursorMove(event: MouseEvent) {
   position: relative;
 }
 
-/* 原句标点：按原位置显示在词旁，字号跟词一致，颜色与词相同 */
+/* 原句标点：按原位置显示在词旁，字号比词小、颜色与面板下划线/音标同一灰蓝色系 */
 .cell-punct {
   display: inline-block;
-  font-size: 3em;
+  font-size: 1.2em;
   line-height: 1;
   color: #6d879b;
 }
