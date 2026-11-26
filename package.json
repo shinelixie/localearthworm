@@ -14,6 +14,7 @@
     "db:upload": "pnpm -F @earthworm/xingrong-courses upload",
     "db:import": "pnpm -F @earthworm/xingrong-courses import:csv",
     "web-data": "node tools/build-web-data.mjs",
+    "web-tts": "node tools/build-web-tts.mjs",
     "build:web": "pnpm web-data && pnpm -F client build:web",
     "docs:help": "node tools/build-help-docs.mjs",
     "dev:serve": "pnpm schema:build && pnpm -F api start:dev",

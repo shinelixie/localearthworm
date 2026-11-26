@@ -146,15 +146,19 @@ curl -X POST http://localhost:3101/tts/cache/purge      # 清缓存
 - **课程内容**随站点发布（`apps/client/public/data/courses.json`，由 `pnpm web-data`
   从本机库导出并提交进仓库）
 - **学习数据**（进度/断点/收藏/练习记录）存本机浏览器 IndexedDB，不上传、换设备不迁移
-- **发音**联网走有道 dictvoice；离线时退到浏览器系统语音
-- **没有**：服务端 TTS 合成、FSRS 复习排期（复习入口在，队列为空）、翻译、排行榜
+- **发音**用微软神经语音（Jenny 美音）：整句 + 拆分语块都在本地预合成好
+  （`pnpm web-tts`，见 `tools/build-web-tts.mjs`），mp3 与 `text → 地址` 清单
+  （`public/tts/`、`public/data/tts-manifest.json`）随站点发布；未收录的文本
+  联网走有道 dictvoice，离线退浏览器系统语音
+- **没有**：按需服务端 TTS 合成、FSRS 复习排期（复习入口在，队列为空）、翻译、排行榜
 - 路由用 hash（`…/#/course-pack/…`），静态服务器刷新不 404
 
 重新发布（课程内容有更新时）：
 
 ```bash
 pnpm web-data                    # 从本机 Postgres 重新导出 courses.json
-git commit -am "chore(web): 更新课程内容数据"
+pnpm web-tts                     # 补齐新增句子的预合成音频（需本地 API 在跑）
+git commit -am "chore(web): 更新课程内容数据与音频"
 git push github main             # 本仓库
 git push webrepo main            # 站点仓库；其 GitHub Actions 自动构建并部署 Pages
 ```
